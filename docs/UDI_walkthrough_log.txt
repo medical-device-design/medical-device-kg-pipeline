@@ -1,0 +1,98 @@
+############################################################
+#  UDI INGEST WALKTHROUGH  (smoke scale: 1 partition, 500 records)
+#  Wed Sep  9 11:37:06 PM EDT 2026   host=biomed-dev-graphdb-2   user=roche
+############################################################
+
+>>> STEP 1  FETCH  (bulk download, NOT the API)
+==> manifest: https://api.fda.gov/download.json
+    endpoint      device/udi
+    export_date   2026-09-08
+    records       5,182,695
+    partitions    52
+    total size    1,895 MB compressed
+    NOTE: size_mb is the COMPRESSED .json.zip; expect 8-12x on unzip.
+
+    (limited to first 1 partition(s))
+
+  [1/1] /device/udi (part 1 of 52) (36.62 MB)
+
+==> 1 downloaded, 0 already present -> downloads/udi
+    Next: python3 udi_to_rdf.py --input downloads/udi --output out/udi.ttl
+
+>>> STEP 2  TRANSFORM  (JSON -> Turtle, streaming, 500-record slice)
+==> 1 partition(s) -> out/udi-demo.ttl
+  [1/1] device-udi-0001-of-0052.json.zip: 500 records
+  (stopped early -- --limit was set)
+
+==> done in 0.1 min
+    records          500
+    triples          26,611
+    GMDN terms       230
+    labelers (DUNS)  200
+    output           1.6 MB
+
+    WARNING: --limit was set. This output is INCOMPLETE.
+
+>>> STEP 3a  VALIDATE syntax  (riot --validate, streaming)
+    RESULT: valid Turtle
+
+>>> STEP 3b  COUNT triples  (riot --count)
+out/udi-demo.ttl : Triples = 26,611
+
+>>> STEP 3c  JOIN CHECK  (do UDI records reference clearance IRIs?)
+    relatedK510Record edges: 157
+    relatedPMARecord  edges: 4
+    distinct product-code IRIs referenced: 208
+
+>>> SAMPLE  first device block in the output
+    rdf:type ex:UDIDeviceRecord ;
+    rdfs:label "Vivid" ;
+    ex:brandName "Vivid" ;
+    ex:companyName "GE Medical Systems (China) Co.,Ltd." ;
+    ex:versionModelNumber "T8 v206" ;
+    ex:deviceDescription "T8 v206 console" ;
+    ex:publicDeviceRecordKey "248d4b67-35ce-438b-86f3-d399d065dcc9" ;
+    ex:devicePublishDate "2022-08-30"^^xsd:date ;
+    ex:publicVersionDate "2022-09-07"^^xsd:date ;
+    ex:recordStatus "Published" ;
+    ex:commercialDistributionStatus "In Commercial Distribution" ;
+    ex:deviceCountInBasePackage "1"^^xsd:integer ;
+    ex:isRx "false"^^xsd:boolean ;
+    ex:isOTC "false"^^xsd:boolean ;
+    ex:isSingleUse "false"^^xsd:boolean ;
+    ex:isKit "false"^^xsd:boolean ;
+    ex:isCombinationProduct "false"^^xsd:boolean ;
+    ex:isHCTP "false"^^xsd:boolean ;
+    ex:isLabeledAsNRL "false"^^xsd:boolean ;
+    ex:isLabeledAsNoNRL "false"^^xsd:boolean ;
+    ex:isDirectMarkingExempt "false"^^xsd:boolean ;
+    ex:isPremarketExempt "false"^^xsd:boolean ;
+    ex:mriSafetyStatus "MR Unsafe" ;
+    ex:hasLotOrBatchNumber "false"^^xsd:boolean ;
+    ex:hasSerialNumber "true"^^xsd:boolean ;
+    ex:hasExpirationDate "false"^^xsd:boolean ;
+    ex:hasManufacturingDate "true"^^xsd:boolean ;
+    ex:hasDonationIdNumber "false"^^xsd:boolean ;
+    ex:sourceDataset "openFDA device/udi (AccessGUDID)" ;
+    ex:sourceRecordId "248d4b67-35ce-438b-86f3-d399d065dcc9" ;
+
+>>> ARTIFACTS on disk
+-rw-rw-r-- 1 roche mdkg 1.6M Sep  9 23:37 out/udi-demo.ttl
+
+downloads/udi/:
+total 37M
+-rw-rw-r-- 1 roche mdkg 37M Sep  9 23:37 device-udi-0001-of-0052.json.zip
+
+>>> STEP 4  PUBLISH  (commands only -- NOT run: credential not placed, and freeze until Sep 25)
+    export LAKECTL="lakectl --config /srv/medical-device-kg/.lakectl.yaml"
+    $LAKECTL branch create lakefs://medical-device-kg/demo-udi-walkthrough \
+             --source lakefs://medical-device-kg/main
+    $LAKECTL fs upload  lakefs://medical-device-kg/demo-udi-walkthrough/udi-demo.ttl \
+             --source out/udi-demo.ttl
+    $LAKECTL commit     lakefs://medical-device-kg/demo-udi-walkthrough \
+             -m "UDI walkthrough: 500-record smoke slice"
+    # NO merge to main. NO tag. This is a demo branch only.
+
+############################################################
+#  DONE.  Full log saved to: /srv/medical-device-kg/logs/udi-walkthrough-20260909-2337.log
+############################################################
