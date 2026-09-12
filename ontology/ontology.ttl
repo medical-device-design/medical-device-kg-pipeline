@@ -1,0 +1,485 @@
+# =============================================================================
+# Medical Device Design Knowledge Graph -- T-Box (ontology)
+#
+# REBUILD VERSION. Reconciled against the live graph on 2026-09-10: every class
+# below is one FDA actually populates, under the exact name the data uses. The
+# legacy ontology drifted from its own data in ways that made queries silently
+# fail; this file fixes that (defects D2, D3) and adds the UDI device layer.
+#
+# Namespace: bmedesign.org (owned through 2030). To migrate, this file and
+# pipeline/iri.py move together -- they are the only two places the base URI
+# appears.
+#
+# WHAT CHANGED FROM THE LEGACY ONTOLOGY
+#   - Class names now MATCH the data (verified counts in comments):
+#       XRayAssemblerRecord  -> XrayAssemblerRecord   (300,823 instances)
+#       DevicesFDARecord     -> DeviceFDARecord        (12,386)
+#       HDERecord            -> HumanitarianDeviceExemption (1,947)
+#       CLIAWaivedRecord     -> CliaWaivedAnalyte       (152)
+#       IVDRecord            -> IVDHomeUseTest           (53)
+#       RecognizedStandard   -> RecognizedConsensusStandard (49)
+#       AccessGUDIDRecord    -> UDIDeviceRecord          (the UDI device layer)
+#   - Declared the two classes that were populated but never declared:
+#       CFRTitle21Section (2,842), CfrPart (57)
+#   - Removed ~18 declared-but-empty classes (device composition, MedSun,
+#     ApprovalPathway, SafetySignal, DeviceListing, TestSystem/Analyte/Specialty,
+#     SourceRecord/ProvenanceRecord/Dataset) and their orphan properties.
+#   - Dates are typed xsd:date, booleans xsd:boolean, counts xsd:integer (D4).
+#   - ProductCode is now an explicit hub (see its outbound properties).
+#   - ONE label predicate: rdfs:label. There is no ex:label.
+#
+# NAMING CONVENTION (deliberate, not noise): a class ending in "Record" is an
+# A-Box FDA source record -- a regulatory event or document. A class without it
+# is an ENTITY those records reference (ProductCode, Manufacturer, GMDNTerm) or
+# an aggregate (TPLCRecord is an aggregate, hence the suffix). Records carry
+# provenance; entities are shared join targets.
+# =============================================================================
+
+@prefix ex:        <https://bmedesign.org/medical-device-kg/ns/> .
+@prefix rdf:       <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:      <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:       <http://www.w3.org/2001/XMLSchema#> .
+@prefix owl:       <http://www.w3.org/2002/07/owl#> .
+@prefix skos:      <http://www.w3.org/2004/02/skos/core#> .
+@prefix geo:       <http://www.opengis.net/ont/geosparql#> .
+@prefix wgs:       <http://www.w3.org/2003/01/geo/wgs84_pos#> .
+
+<https://bmedesign.org/medical-device-kg/ns/>
+    a owl:Ontology ;
+    rdfs:label "Medical Device Design Knowledge Graph vocabulary" ;
+    rdfs:comment "FDA device regulatory, safety and postmarket data as one graph. NSF Proto-OKN subaward 5136002; NIH/NIBIB R25EB035522. Hofstra University." ;
+    owl:versionInfo "rebuild-2026-09" .
+
+
+# =============================================================================
+# ABSTRACT SPINE  -- parents for the subclass hierarchy. Not populated directly;
+# every leaf below is. Kept because they make "all regulatory submissions" or
+# "all adverse-event reports" answerable in one hop.
+# =============================================================================
+ex:FDADataRecord a owl:Class ;
+    rdfs:label "FDA Data Record" ;
+    rdfs:comment "Abstract parent of every source record class." .
+
+ex:RegulatorySubmission a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "Regulatory Submission" .
+
+ex:AdverseEventReport a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "Adverse Event Report" .
+
+ex:PostmarketRecord a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "Postmarket Safety Record" .
+
+ex:EstablishmentRecord a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "Establishment / Registration Record" .
+
+
+# =============================================================================
+# ENTITY CLASSES  -- shared join targets. ProductCode is THE hub.
+# =============================================================================
+ex:ProductCode a owl:Class ;
+    rdfs:label "FDA Product Code" ;
+    rdfs:comment "The central hub. Almost every query routes through a product code. Its outbound properties (below) reach classification, regulation and CFR; inbound edges arrive from nearly every record class. 8,014 instances." .
+
+ex:Manufacturer a owl:Class ;
+    rdfs:label "Manufacturer / Establishment" ;
+    rdfs:comment "Keyed on FEI or a name slug. DISTINCT from ex:Labeler (which is keyed on DUNS); FDA publishes no FEI<->DUNS crosswalk, so the two are never merged. 53,499 instances." .
+
+ex:RegulationNumber a owl:Class ;
+    rdfs:label "21 CFR Regulation Number" ;
+    rdfs:comment "2,265 instances." .
+
+ex:CFRTitle21Section a owl:Class ;
+    rdfs:label "21 CFR Section" ;
+    rdfs:comment "Populated (2,842) but undeclared in the legacy ontology. 2,842 instances." .
+
+ex:CfrPart a owl:Class ;
+    rdfs:label "21 CFR Part" ;
+    rdfs:comment "Populated (57) but undeclared in the legacy ontology. 57 instances." .
+
+ex:DeviceProblem a owl:Class ;
+    rdfs:label "Device Problem" ;
+    rdfs:comment "52,823 instances." .
+
+ex:PatientOutcome a owl:Class ;
+    rdfs:label "Patient Outcome" ;
+    rdfs:comment "46,041 instances." .
+
+ex:MDRStatistic a owl:Class ;
+    rdfs:label "MDR Statistic (yearly trend)" ;
+    rdfs:comment "12,904 instances." .
+
+ex:Recall a owl:Class ;
+    rdfs:label "Recall (TPLC-linked)" ;
+    rdfs:comment "The recall as reached from a TPLC aggregate. Distinct from ex:RecallRecord, the standalone recall/enforcement record. 6,843 instances." .
+
+ex:MedicalDevice a owl:Class ;
+    rdfs:label "Medical Device" ;
+    rdfs:comment "LEGACY STUB pending the UDI ingest. Today's 4,099 instances carry a label and rdf:type but effectively no outbound edges (defect D1). FDA publishes no device identifier except UDI's DI, so a real device layer cannot be minted from the other sources. When UDI loads, ex:UDIDeviceRecord (keyed on the DI) becomes the physical-device layer and this class is either populated with real edges or retired. Do not add speculative edges to it." .
+
+
+# =============================================================================
+# PREMARKET REVIEW RECORDS
+# =============================================================================
+ex:K510Record a owl:Class ;
+    rdfs:subClassOf ex:RegulatorySubmission ;
+    rdfs:label "510(k) / De Novo Clearance Record" ;
+    rdfs:comment "175,299 instances. Also the target of UDI's ex:relatedK510Record." .
+
+ex:PMARecord a owl:Class ;
+    rdfs:subClassOf ex:RegulatorySubmission ;
+    rdfs:label "PMA Approval Record" ;
+    rdfs:comment "56,584 instances. Also the target of UDI's ex:relatedPMARecord." .
+
+ex:PMAChangeMemo a owl:Class ;
+    rdfs:subClassOf ex:RegulatorySubmission ;
+    rdfs:label "PMA Supplement / Design Change" ;
+    rdfs:comment "55,136 instances." .
+
+ex:DeNovoRecord a owl:Class ;
+    rdfs:subClassOf ex:RegulatorySubmission ;
+    rdfs:label "De Novo Authorization Record" ;
+    rdfs:comment "483 instances." .
+
+ex:HumanitarianDeviceExemption a owl:Class ;
+    rdfs:subClassOf ex:RegulatorySubmission ;
+    rdfs:label "Humanitarian Device Exemption (HDE)" ;
+    rdfs:comment "Legacy ontology called this HDERecord; the data uses this name. 1,947 instances." .
+
+ex:DeviceFDARecord a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "Devices@FDA Catalog Record" ;
+    rdfs:comment "Legacy ontology called this DevicesFDARecord; the data uses this name. 12,386 instances." .
+
+
+# =============================================================================
+# CLASSIFICATION / REGULATION / STANDARDS RECORDS
+# =============================================================================
+ex:ProductClassificationRecord a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "FDA Product Classification Record" ;
+    rdfs:comment "7,071 instances." .
+
+ex:RecognizedConsensusStandard a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "FDA Recognized Consensus Standard" ;
+    rdfs:comment "Legacy ontology called this RecognizedStandard. 49 instances (of ~1,400 -- coverage gap, not a model gap)." .
+
+
+# =============================================================================
+# POSTMARKET SAFETY RECORDS
+# =============================================================================
+ex:TPLCRecord a owl:Class ;
+    rdfs:subClassOf ex:PostmarketRecord ;
+    rdfs:label "Total Product Life Cycle Record" ;
+    rdfs:comment "FDA's own aggregate per product code -- complete, unlike the MAUDE sample. 7,034 instances." .
+
+ex:RecallRecord a owl:Class ;
+    rdfs:subClassOf ex:PostmarketRecord ;
+    rdfs:label "Device Recall / Enforcement Record" ;
+    rdfs:comment "Standalone recall record. 39,224 instances." .
+
+ex:MAUDEReport a owl:Class ;
+    rdfs:subClassOf ex:AdverseEventReport ;
+    rdfs:label "MAUDE Adverse Event Report" ;
+    rdfs:comment "A SAMPLE (15,284 of 25.7M). Lead with TPLC, which is complete." .
+
+ex:Postmarket522Study a owl:Class ;
+    rdfs:subClassOf ex:PostmarketRecord ;
+    rdfs:label "Section 522 Postmarket Surveillance Study" ;
+    rdfs:comment "353 instances." .
+
+
+# =============================================================================
+# ESTABLISHMENT / FACILITY RECORDS
+# =============================================================================
+ex:RegistrationListingRecord a owl:Class ;
+    rdfs:subClassOf ex:EstablishmentRecord ;
+    rdfs:label "FDA Registration & Listing Record" ;
+    rdfs:comment "25,132 instances." .
+
+ex:Facility a owl:Class ;
+    rdfs:subClassOf ex:RegistrationListingRecord ;
+    rdfs:label "Geocoded FDA-registered establishment" ;
+    rdfs:comment "A registration record carrying a geocodable address; dual-typed geo:Feature. 9,120 instances, 7,403 at full geocoding confidence." .
+
+ex:MammographyFacility a owl:Class ;
+    rdfs:subClassOf ex:EstablishmentRecord ;
+    rdfs:label "MQSA Certified Mammography Facility" ;
+    rdfs:comment "975 instances." .
+
+ex:XrayAssemblerRecord a owl:Class ;
+    rdfs:subClassOf ex:EstablishmentRecord ;
+    rdfs:label "FDA X-Ray Assembler Record" ;
+    rdfs:comment "Legacy ontology called this XRayAssemblerRecord (capital R); the data -- 300,823 instances, the single largest class -- uses this name. The drift meant the ontology silently failed to describe a third of the graph." .
+
+ex:CliaWaivedAnalyte a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "CLIA-Waived Analyte Record" ;
+    rdfs:comment "Legacy ontology called this CLIAWaivedRecord. 152 instances." .
+
+ex:IVDHomeUseTest a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "IVD Home-Use (OTC) Test Record" ;
+    rdfs:comment "Legacy ontology called this IVDRecord. 53 instances." .
+
+
+# =============================================================================
+# UDI / AccessGUDID  -- the physical-device layer (ingest after the rebuild).
+# These names match pipeline/udi/udi_to_rdf.py and ontology/shapes/udi.shacl.ttl.
+# =============================================================================
+ex:UDIDeviceRecord a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "UDI (AccessGUDID) Device Record" ;
+    rdfs:comment "The only FDA source with a genuine device identifier (the DI). Becomes the real device layer that ex:MedicalDevice never could. ~5.18M records when fully ingested." .
+
+ex:GMDNTerm a owl:Class ;
+    rdfs:label "GMDN Term" ;
+    rdfs:comment "The ONLY external controlled vocabulary in FDA device data -- the natural anchor for future skos: links outward. Shared node, emitted once per code." .
+
+ex:Labeler a owl:Class ;
+    rdfs:label "UDI Labeler" ;
+    rdfs:comment "Keyed on DUNS. Deliberately NOT merged with ex:Manufacturer (FEI-keyed); resolving the two is a scored skos:closeMatch problem, never owl:sameAs." .
+
+ex:UDIIdentifier a owl:Class ;
+    rdfs:label "UDI Device / Package Identifier" ;
+    rdfs:comment "One entry from the AccessGUDID identifiers[] array (Primary DI, Package DI, or Unit-of-Use DI)." .
+
+ex:StorageCondition a owl:Class ;
+    rdfs:label "Storage Condition" ;
+    rdfs:comment "A typed temperature/handling envelope hanging off a UDI device." .
+
+
+# =============================================================================
+# CROSS-GRAPH ENTITY CLASSES  (NAICS / geospatial)
+# =============================================================================
+ex:NAICSClassification a owl:Class ;
+    rdfs:label "NAICS Industry Classification" ;
+    rdfs:comment "Shared join key to sudokn. 13 instances (the distinct codes). Dual-typed with sudokn:NAICSClassifier." .
+
+ex:ProductCodeNAICSMapping a owl:Class ;
+    rdfs:label "Product Code -> NAICS Crosswalk Assertion (inferred)" ;
+    rdfs:comment "An INFERRED crosswalk (rule/LLM-assisted), NOT FDA data. Provenance is carried on the mapping so the distinction stays queryable. 1,589 instances." .
+
+
+# =============================================================================
+# OBJECT PROPERTIES  -- the joins.
+# ProductCode hub properties are grouped first and marked (HUB).
+# =============================================================================
+
+# ---- ProductCode as hub (HUB) ----
+ex:hasClassificationRecord a owl:ObjectProperty ;
+    rdfs:domain ex:ProductCode ; rdfs:range ex:ProductClassificationRecord ;
+    rdfs:label "has classification record" .
+
+ex:hasRegulationNumber a owl:ObjectProperty ;
+    rdfs:domain ex:ProductCode ; rdfs:range ex:RegulationNumber ;
+    rdfs:label "has regulation number" .
+
+ex:hasCFRSection a owl:ObjectProperty ;
+    rdfs:domain ex:ProductCode ; rdfs:range ex:CFRTitle21Section ;
+    rdfs:label "has 21 CFR section" .
+
+ex:hasNAICSMapping a owl:ObjectProperty ;
+    rdfs:domain ex:ProductCode ; rdfs:range ex:ProductCodeNAICSMapping ;
+    rdfs:label "has NAICS crosswalk mapping (provenance-bearing)" .
+
+# ---- edges INTO the product-code hub (from record classes) ----
+ex:hasProductCode a owl:ObjectProperty ;
+    rdfs:range ex:ProductCode ;
+    rdfs:label "has product code" ;
+    rdfs:comment "The most common inbound edge to the hub; domain is many record classes." .
+
+# ---- manufacturer / labeler ----
+ex:hasManufacturer a owl:ObjectProperty ;
+    rdfs:range ex:Manufacturer ; rdfs:label "has manufacturer" .
+
+ex:hasLabeler a owl:ObjectProperty ;
+    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:Labeler ;
+    rdfs:label "has labeler (UDI, DUNS-keyed)" .
+
+# ---- CFR structure ----
+ex:hasCfrPart a owl:ObjectProperty ;
+    rdfs:domain ex:CFRTitle21Section ; rdfs:range ex:CfrPart ;
+    rdfs:label "belongs to 21 CFR part" .
+
+# ---- postmarket links ----
+ex:hasRecall a owl:ObjectProperty ;
+    rdfs:domain ex:TPLCRecord ; rdfs:range ex:Recall ; rdfs:label "has recall" .
+
+ex:hasMDRStatistic a owl:ObjectProperty ;
+    rdfs:domain ex:TPLCRecord ; rdfs:range ex:MDRStatistic ;
+    rdfs:label "has MDR statistic (yearly trend)" .
+
+ex:hasDeviceProblem a owl:ObjectProperty ;
+    rdfs:range ex:DeviceProblem ; rdfs:label "has device problem" .
+
+ex:hasPatientOutcome a owl:ObjectProperty ;
+    rdfs:range ex:PatientOutcome ; rdfs:label "has patient outcome" .
+
+ex:relatedTPLC a owl:ObjectProperty ;
+    rdfs:range ex:TPLCRecord ; rdfs:label "related TPLC record" .
+
+# ---- UDI device joins (the highest-value new edges) ----
+ex:relatedK510Record a owl:ObjectProperty ;
+    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:K510Record ;
+    rdfs:label "device cleared under this 510(k)/De Novo" ;
+    rdfs:comment "Ties a physical marketed device to the regulatory record that authorised it. Nothing else in the graph does this." .
+
+ex:relatedPMARecord a owl:ObjectProperty ;
+    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:PMARecord ;
+    rdfs:label "device approved under this PMA" .
+
+ex:hasGMDNTerm a owl:ObjectProperty ;
+    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:GMDNTerm ;
+    rdfs:label "has GMDN term" .
+
+ex:hasIdentifier a owl:ObjectProperty ;
+    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:UDIIdentifier ;
+    rdfs:label "has UDI identifier" .
+
+ex:belongsToDevice a owl:ObjectProperty ;
+    rdfs:domain ex:UDIIdentifier ; rdfs:range ex:UDIDeviceRecord ;
+    rdfs:label "identifier belongs to device" .
+
+ex:hasStorageCondition a owl:ObjectProperty ;
+    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:StorageCondition ;
+    rdfs:label "has storage condition" .
+
+ex:appliesToDevice a owl:ObjectProperty ;
+    rdfs:domain ex:StorageCondition ; rdfs:range ex:UDIDeviceRecord ;
+    rdfs:label "storage condition applies to device" .
+
+# ---- establishment / listing ----
+ex:hasRegistrationRecord a owl:ObjectProperty ;
+    rdfs:domain ex:Manufacturer ; rdfs:range ex:RegistrationListingRecord ;
+    rdfs:label "has registration record" .
+
+# ---- cross-graph ----
+ex:hasNAICSClassification a owl:ObjectProperty ;
+    rdfs:range ex:NAICSClassification ;
+    rdfs:label "has NAICS classification" ;
+    rdfs:comment "Domain is ex:ProductCode or ex:Manufacturer. Paired with sudokn:hasNAICSClassifier for cross-graph consumers." .
+
+ex:assignedNAICS a owl:ObjectProperty ;
+    rdfs:domain ex:ProductCodeNAICSMapping ; rdfs:range ex:NAICSClassification ;
+    rdfs:label "NAICS code assigned by this mapping" .
+
+
+# =============================================================================
+# DATATYPE PROPERTIES
+# Dates are xsd:date, booleans xsd:boolean, counts xsd:integer (defect D4).
+# =============================================================================
+
+# ---- provenance (on every record) ----
+ex:sourceDataset  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "source dataset" .
+ex:sourceRecordId a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "source record ID (original FDA identifier)" .
+ex:sourceUrl      a owl:DatatypeProperty ; rdfs:range xsd:anyURI ; rdfs:label "source URL" .
+ex:retrievedAt    a owl:DatatypeProperty ; rdfs:range xsd:date   ; rdfs:label "date retrieved from source" .
+
+# ---- shared identifiers / names ----
+ex:productCode   a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "product code (literal)" .
+ex:deviceName    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device name" .
+ex:brandName     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "brand name" .
+ex:companyName   a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "company name" .
+ex:applicant     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "applicant" .
+ex:feiNumber     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA establishment identifier (FEI)" .
+ex:registrationNumber a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA registration number" .
+ex:establishmentName a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "establishment name" .
+ex:dunsNumber    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "labeler DUNS number" .
+
+# ---- dates (typed -- the D4 fix) ----
+ex:decisionDate           a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "decision date" .
+ex:approvalDate           a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "approval date" .
+ex:reportDate             a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "report date" .
+ex:dateReceived           a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "date received" .
+ex:recallInitiationDate   a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "recall initiation date" .
+ex:centerClassificationDate a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "FDA center classification date" .
+ex:terminationDate        a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "recall termination date" .
+ex:devicePublishDate      a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "device publish date" .
+ex:publicVersionDate      a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "public version date" .
+
+# ---- counts (typed) ----
+ex:reportCount               a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "report count" .
+ex:eventCount                a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "event count" .
+ex:year                      a owl:DatatypeProperty ; rdfs:range xsd:gYear   ; rdfs:label "year" .
+ex:deviceCountInBasePackage  a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "device count in base package" .
+ex:quantityPerUnitOfUse      a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "quantity per unit of use" .
+
+# ---- booleans (typed -- UDI design attributes) ----
+ex:isSterile               a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "is sterile" .
+ex:requiresSterilizationPriorToUse a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "requires sterilization prior to use" .
+ex:isSingleUse             a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "is single use" .
+ex:isKit                   a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "is kit" .
+ex:isCombinationProduct    a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "is combination product" .
+ex:isRx                    a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "is prescription (Rx)" .
+ex:isOTC                   a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "is over-the-counter" .
+ex:isHCTP                  a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "is HCT/P" .
+ex:isLabeledAsNRL          a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "is labeled as containing natural rubber latex" .
+ex:isLabeledAsNoNRL        a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "is labeled as NOT made with natural rubber latex" .
+ex:hasLotOrBatchNumber     a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "has lot or batch number" .
+ex:hasSerialNumber         a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "has serial number" .
+ex:hasExpirationDate       a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "has expiration date" .
+ex:gmdnImplantable         a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "GMDN term is implantable" .
+
+# ---- UDI descriptive / device-build attributes ----
+ex:mriSafetyStatus       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "MRI safety status" .
+ex:sterilizationMethod   a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "sterilization method" .
+ex:versionModelNumber    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "version or model number" .
+ex:catalogNumber         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "catalog number" .
+ex:deviceDescription     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device description" .
+ex:publicDeviceRecordKey a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "public device record key" .
+ex:commercialDistributionStatus a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "commercial distribution status" .
+ex:recordStatus          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "record status" .
+ex:gmdnTermCode          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "GMDN term code" .
+ex:gmdnTermName          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "GMDN term name" .
+ex:gmdnTermDefinition    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "GMDN term definition" .
+ex:identifierId          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "UDI identifier value (DI/PI string)" .
+ex:issuingAgency         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "UDI issuing agency (GS1/HIBCC/ICCBBA/NDC)" .
+
+# ---- recall fields ----
+ex:recallClassification a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "recall classification (Class I/II/III)" .
+ex:recallingFirm        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "recalling firm name" .
+ex:reasonForRecall      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "reason for recall" .
+ex:distributionPattern  a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "distribution pattern (free text)" ;
+    rdfs:comment "FDA's only statement of where recalled devices went, and it is unstructured free text (e.g. 53 state codes in a sentence). A structuring target, not a clean field." .
+ex:productQuantity      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "product quantity in recall" .
+ex:recallStatus         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "recall status" .
+
+# ---- classification / regulation fields ----
+ex:deviceClass          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device class (1/2/3)" .
+ex:regulationNumber     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "regulation number (literal)" .
+ex:medicalSpecialtyDescription a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "medical specialty description" .
+ex:definition           a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "definition" .
+
+# ---- address / geo (Facility) ----
+ex:city       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "city" .
+ex:state      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "state or province" .
+ex:country    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "country" .
+ex:postalCode a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "postal / ZIP code (cross-graph join key to sudokn)" .
+ex:normalizedAddress   a owl:DatatypeProperty ; rdfs:range xsd:string  ; rdfs:label "normalized single-line address" .
+ex:geocodingConfidence a owl:DatatypeProperty ; rdfs:range xsd:decimal ; rdfs:label "geocoding confidence (0.0-1.0)" .
+ex:geocodingSource     a owl:DatatypeProperty ; rdfs:range xsd:string  ; rdfs:label "geocoding provider" .
+
+# ---- NAICS crosswalk provenance (keeps inferred-vs-authoritative queryable) ----
+ex:naicsCode         a owl:DatatypeProperty ; rdfs:domain ex:NAICSClassification ; rdfs:range xsd:string  ; rdfs:label "six-digit NAICS code (cross-graph join key)" .
+ex:naicsVersion      a owl:DatatypeProperty ; rdfs:domain ex:NAICSClassification ; rdfs:range xsd:string  ; rdfs:label "NAICS taxonomy version" .
+ex:mappingMethod     a owl:DatatypeProperty ; rdfs:domain ex:ProductCodeNAICSMapping ; rdfs:range xsd:string  ; rdfs:label "how the NAICS mapping was derived" .
+ex:mappingConfidence a owl:DatatypeProperty ; rdfs:domain ex:ProductCodeNAICSMapping ; rdfs:range xsd:decimal ; rdfs:label "NAICS mapping confidence (0.0-1.0)" .
+ex:mappingSource     a owl:DatatypeProperty ; rdfs:domain ex:ProductCodeNAICSMapping ; rdfs:range xsd:string  ; rdfs:label "provenance label (never claims FDA supplied the code)" .
+
+
+# =============================================================================
+# EXTERNAL VOCABULARIES  -- reused, never redefined. We do not own these terms;
+# instances are dual-typed / dual-predicated so sudokn- or GeoSPARQL-aware
+# consumers can use our data without our ex: vocabulary. See README
+# "Cross-Graph Integration".
+#   geo:  <http://www.opengis.net/ont/geosparql#>   Feature, Geometry, hasGeometry, asWKT
+#   wgs:  <http://www.w3.org/2003/01/geo/wgs84_pos#> lat, long
+#   sudokn: <http://asu.edu/semantics/SUDOKN/>       NAICSClassifier, hasNAICSClassifier
+#   skos: exactMatch/closeMatch -- reserved for future GMDN and Manufacturer<->Labeler links
+# =============================================================================
