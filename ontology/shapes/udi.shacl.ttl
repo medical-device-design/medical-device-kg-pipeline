@@ -1,0 +1,140 @@
+# SHACL shapes for the UDI (AccessGUDID) source.
+#
+# These encode the rules the rebuild must not silently violate. They are the
+# "validate" gate of the module contract: riot --validate checks syntax, this
+# checks structure and typing.
+#
+# Run per-source (NOT against the assembled graph — the low-RAM VM cannot hold
+# the whole thing):
+#     riot --validate=... is syntax only; use Jena's shacl for shapes:
+#     shacl validate --shapes udi.shacl.ttl --data out/udi.ttl
+#
+# Namespaces match the post-migration target. If validating a graph still on the
+# old medicaldevice.com namespace, change ex: below to match.
+
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex:   <https://bmedesign.org/medical-device-kg/ns/> .
+@prefix :     <https://bmedesign.org/medical-device-kg/shapes/> .
+
+# ---------------------------------------------------------------------------
+# UDIDeviceRecord — the physical device. This is the class that, in the old
+# graph, would otherwise become an orphan (defect D1). These shapes guarantee
+# every device carries identity, a label, and at least one real edge.
+# ---------------------------------------------------------------------------
+:UDIDeviceRecordShape a sh:NodeShape ;
+    sh:targetClass ex:UDIDeviceRecord ;
+
+    # identity + label (defect D5: labels were missing on several classes)
+    sh:property [
+        sh:path rdfs:label ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "UDIDeviceRecord has no rdfs:label (D5)." ] ;
+    sh:property [
+        sh:path ex:publicDeviceRecordKey ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "UDIDeviceRecord must have exactly one publicDeviceRecordKey." ] ;
+
+    # NOT AN ORPHAN (defect D1): a device must connect to at least a product code.
+    # sh:or requires at least one of the real outbound edges to be present.
+    sh:or (
+        [ sh:path ex:hasProductCode      ; sh:minCount 1 ]
+        [ sh:path ex:relatedK510Record   ; sh:minCount 1 ]
+        [ sh:path ex:relatedPMARecord    ; sh:minCount 1 ]
+        [ sh:path ex:hasGMDNTerm         ; sh:minCount 1 ]
+    ) ;
+    sh:message "UDIDeviceRecord has no outgoing edge to a product code, clearance, PMA or GMDN term — orphan node (D1)." ;
+
+    # booleans must be typed booleans, never the strings "true"/"false" (D-boolean)
+    sh:property [ sh:path ex:isSterile           ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:isSingleUse         ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:isKit               ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:isCombinationProduct; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:isLabeledAsNRL      ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:isRx                ; sh:datatype xsd:boolean ] ;
+
+    # dates must be xsd:date, never the untyped YYYYMMDD strings of the old graph (D4)
+    sh:property [
+        sh:path ex:devicePublishDate ;
+        sh:datatype xsd:date ;
+        sh:message "devicePublishDate is not xsd:date (D4)." ] ;
+    sh:property [
+        sh:path ex:publicVersionDate ;
+        sh:datatype xsd:date ;
+        sh:message "publicVersionDate is not xsd:date (D4)." ] ;
+
+    # counts are integers
+    sh:property [ sh:path ex:deviceCountInBasePackage ; sh:datatype xsd:integer ] ;
+
+    # provenance is mandatory — every record traces to its FDA source (a real
+    # strength of the current graph; preserve it)
+    sh:property [
+        sh:path ex:sourceRecordId ;
+        sh:minCount 1 ;
+        sh:message "Missing sourceRecordId — provenance is required." ] ;
+    sh:property [
+        sh:path ex:sourceDataset ;
+        sh:minCount 1 ;
+        sh:message "Missing sourceDataset — provenance is required." ] .
+
+# ---------------------------------------------------------------------------
+# GMDNTerm — shared controlled-vocabulary node. The one external vocabulary in
+# FDA device data, so it must be well-formed to anchor future skos: links.
+# ---------------------------------------------------------------------------
+:GMDNTermShape a sh:NodeShape ;
+    sh:targetClass ex:GMDNTerm ;
+    sh:property [
+        sh:path ex:gmdnTermCode ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "GMDNTerm must have exactly one gmdnTermCode." ] ;
+    sh:property [
+        sh:path rdfs:label ;
+        sh:minCount 1 ;
+        sh:message "GMDNTerm has no rdfs:label." ] ;
+    sh:property [
+        sh:path ex:gmdnImplantable ;
+        sh:maxCount 1 ; sh:datatype xsd:boolean ;
+        sh:message "gmdnImplantable, if present, must be a typed boolean." ] .
+
+# ---------------------------------------------------------------------------
+# Labeler — kept DELIBERATELY separate from Manufacturer (keyed on DUNS, not
+# FEI). This shape enforces that separation: a Labeler carries a DUNS and is
+# never conflated with a Manufacturer. See docs/udi-ingest.md.
+# ---------------------------------------------------------------------------
+:LabelerShape a sh:NodeShape ;
+    sh:targetClass ex:Labeler ;
+    sh:property [
+        sh:path ex:dunsNumber ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "Labeler must carry exactly one DUNS number (it is the key)." ] ;
+    sh:property [
+        sh:path rdfs:label ;
+        sh:minCount 1 ;
+        sh:message "Labeler has no rdfs:label." ] .
+
+# ---------------------------------------------------------------------------
+# UDIIdentifier — the DI/UDI barcode nodes. Must point back to a device.
+# ---------------------------------------------------------------------------
+:UDIIdentifierShape a sh:NodeShape ;
+    sh:targetClass ex:UDIIdentifier ;
+    sh:property [
+        sh:path ex:identifierId ;
+        sh:minCount 1 ;
+        sh:message "UDIIdentifier has no identifierId." ] ;
+    sh:property [
+        sh:path ex:belongsToDevice ;
+        sh:minCount 1 ; sh:nodeKind sh:IRI ;
+        sh:message "UDIIdentifier must belong to a device (belongsToDevice)." ] .
+
+# ---------------------------------------------------------------------------
+# StorageCondition — typed temperature envelope. Must attach to a device.
+# ---------------------------------------------------------------------------
+:StorageConditionShape a sh:NodeShape ;
+    sh:targetClass ex:StorageCondition ;
+    sh:property [
+        sh:path ex:appliesToDevice ;
+        sh:minCount 1 ; sh:nodeKind sh:IRI ;
+        sh:message "StorageCondition must apply to a device (appliesToDevice)." ] .
