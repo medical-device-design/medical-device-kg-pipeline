@@ -1,0 +1,10 @@
+# CQ08 — DEFECT GUARD (provenance). UDI device records that carry a type but no
+# ex:sourceRecordId. EXPECTED RESULT: ZERO ROWS. Every record must trace to its
+# FDA source. (Scoped to UDIDeviceRecord so shared entity nodes — ProductCode,
+# GMDNTerm, Labeler — which legitimately carry no provenance, are not flagged.)
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?d WHERE {
+  ?d a ex:UDIDeviceRecord .
+  FILTER NOT EXISTS { ?d ex:sourceRecordId ?id }
+}
+LIMIT 50

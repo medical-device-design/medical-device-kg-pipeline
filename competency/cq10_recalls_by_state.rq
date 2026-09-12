@@ -1,0 +1,9 @@
+# CQ10 — distribution structuring. Recalls distributed to a given US state,
+# extracted from FDA's free-text distributionPattern by distribution_parser.py.
+# This is the join key an external state-keyed graph (rural-kg, soc-kg, ...) would
+# use. Change "NY" to any two-letter state/territory code.
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?r WHERE {
+  ?r ex:distributedToState "NY" .
+}
+LIMIT 50

@@ -1,0 +1,12 @@
+# CQ06 — cross-attribute. Among implantable devices (GMDN implantable flag),
+# what MRI-safety statuses appear? Joins a UDI device to its GMDN term and reads
+# a labelled physical attribute.
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?mri (COUNT(?d) AS ?n) WHERE {
+  ?d a ex:UDIDeviceRecord ;
+     ex:hasGMDNTerm ?g ;
+     ex:mriSafetyStatus ?mri .
+  ?g ex:gmdnImplantable true .
+}
+GROUP BY ?mri
+ORDER BY DESC(?n)

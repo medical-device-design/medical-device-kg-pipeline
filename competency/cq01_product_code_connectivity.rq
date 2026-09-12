@@ -1,0 +1,9 @@
+# CQ01 — connectivity. Which record types link to a product code, and how many?
+# Tests that ProductCode is the hub and that inbound edges actually land on it.
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?type (COUNT(?rec) AS ?n) WHERE {
+  ?rec ex:hasProductCode ?pc ;
+       a ?type .
+}
+GROUP BY ?type
+ORDER BY DESC(?n)

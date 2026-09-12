@@ -1,0 +1,8 @@
+# CQ02 — coverage. How many recalls fall in each classification (Class I / II / III)?
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?classification (COUNT(?r) AS ?n) WHERE {
+  ?r a ex:RecallRecord ;
+     ex:recallClassification ?classification .
+}
+GROUP BY ?classification
+ORDER BY DESC(?n)

@@ -1,0 +1,13 @@
+# CQ03 — date typing (defect D4). Which recalls were initiated during 2024?
+# This range filter is impossible on the old untyped "YYYYMMDD" strings; it only
+# works because dates are emitted as xsd:date. If it errors or returns nothing on
+# a graph that has 2024 recalls, dates are not typed.
+PREFIX ex:  <https://bmedesign.org/medical-device-kg/ns/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT ?r ?d WHERE {
+  ?r a ex:RecallRecord ;
+     ex:recallInitiationDate ?d .
+  FILTER (?d >= "2024-01-01"^^xsd:date && ?d <= "2024-12-31"^^xsd:date)
+}
+ORDER BY ?d
+LIMIT 50

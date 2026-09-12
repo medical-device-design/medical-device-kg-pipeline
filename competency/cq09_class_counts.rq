@@ -1,0 +1,9 @@
+# CQ09 — coverage snapshot. Instance count per class. Compare against the
+# expected populated-class counts in ontology/ontology.ttl comments; a class that
+# drops to zero, or an undeclared class that appears, is a regression.
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?type (COUNT(?s) AS ?n) WHERE {
+  ?s a ?type .
+}
+GROUP BY ?type
+ORDER BY DESC(?n)

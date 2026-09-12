@@ -1,0 +1,12 @@
+# CQ07 — DEFECT GUARD (D1). UDI device records with NO outbound edge to a product
+# code, clearance, PMA, or GMDN term. EXPECTED RESULT: ZERO ROWS.
+# Any row is an orphan node — the exact defect the old MedicalDevice class had.
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?d WHERE {
+  ?d a ex:UDIDeviceRecord .
+  FILTER NOT EXISTS { ?d ex:hasProductCode    ?pc }
+  FILTER NOT EXISTS { ?d ex:relatedK510Record ?k  }
+  FILTER NOT EXISTS { ?d ex:relatedPMARecord  ?p  }
+  FILTER NOT EXISTS { ?d ex:hasGMDNTerm        ?g  }
+}
+LIMIT 50

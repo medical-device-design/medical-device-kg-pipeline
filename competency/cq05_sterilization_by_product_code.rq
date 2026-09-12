@@ -1,0 +1,11 @@
+# CQ05 — design attribute + join. What sterilization methods do devices under a
+# given product code use? Answerable here and nowhere else (not by web search).
+# Change the product-code IRI to any code of interest.
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?method (COUNT(?d) AS ?n) WHERE {
+  ?d a ex:UDIDeviceRecord ;
+     ex:hasProductCode <https://bmedesign.org/medical-device-kg/id/product-code/brt> ;
+     ex:sterilizationMethod ?method .
+}
+GROUP BY ?method
+ORDER BY DESC(?n)

@@ -1,0 +1,10 @@
+# CQ04 — the marquee join. Physical devices (UDI) linked to the 510(k)/De Novo
+# record that cleared them. Nothing else in the graph connects a marketed device
+# to its regulatory authorisation. Empty result = the UDI->k510 join missed.
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?brand ?k WHERE {
+  ?d a ex:UDIDeviceRecord ;
+     ex:brandName ?brand ;
+     ex:relatedK510Record ?k .
+}
+LIMIT 50
