@@ -14,7 +14,7 @@
 # the graph is well-formed and connected; layer 4 proves it answers real questions.
 # Install Apache Jena once and put its bin/ on PATH (riot, shacl, arq, tdb2, fuseki).
 #
-set -euo pipefail
+set -uo pipefail
 
 SRC="${1:-out}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,7 +28,7 @@ fail=0
 
 echo "== 1/4  Turtle syntax (riot) =="
 if command -v riot >/dev/null 2>&1; then
-  riot --validate "${ttls[@]}" && echo "   PASS"
+  if riot --validate "${ttls[@]}"; then echo "   PASS"; else echo "   FAIL"; fail=1; fi
 else
   echo "   SKIP -- 'riot' (Apache Jena) not on PATH"
 fi
@@ -57,14 +57,11 @@ fi
 
 echo "== 3/4  Join check (internal IRIs resolve to a subject) =="
 tmp="$(mktemp -d)"
-# subjects: lines that BEGIN with an /id/ IRI (write_block puts the subject at col 0)
 grep -hoE '^<https://bmedesign\.org/medical-device-kg/id/[^>]+>' "${ttls[@]}" \
   | tr -d '<>' | sort -u > "$tmp/subjects" || true
-# every /id/ IRI that appears anywhere
 grep -hoE '<https://bmedesign\.org/medical-device-kg/id/[^>]+>' "${ttls[@]}" \
   | tr -d '<>' | sort -u > "$tmp/all" || true
-# referenced-but-undefined = appears, but never as a subject
-missing="$(comm -23 "$tmp/all" "$tmp/subjects" | head -20)"
+missing="$(comm -23 "$tmp/all" "$tmp/subjects" | head -20)" || true
 if [ -n "$missing" ]; then
   echo "   NOTE: internal IRIs referenced but not defined as subjects in '$SRC':"
   printf '     %s\n' $missing
