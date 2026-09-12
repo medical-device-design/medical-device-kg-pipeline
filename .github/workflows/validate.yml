@@ -45,9 +45,11 @@ jobs:
 
       - name: Install Apache Jena
         run: |
-          curl -fsSL -o jena.tgz https://dlcdn.apache.org/jena/binaries/apache-jena-5.2.0.tar.gz
+          JENA=5.2.0
+          curl -fsSL -o jena.tgz "https://dlcdn.apache.org/jena/binaries/apache-jena-${JENA}.tar.gz" \
+            || curl -fsSL -o jena.tgz "https://archive.apache.org/dist/jena/binaries/apache-jena-${JENA}.tar.gz"
           tar xzf jena.tgz
-          echo "$PWD/apache-jena-5.2.0/bin" >> "$GITHUB_PATH"
+          echo "$PWD/apache-jena-${JENA}/bin" >> "$GITHUB_PATH"
 
       - name: Validate ontology + shapes (riot)
         run: |
@@ -97,9 +99,11 @@ jobs:
 
       - name: Install Apache Jena
         run: |
-          curl -fsSL -o jena.tgz https://dlcdn.apache.org/jena/binaries/apache-jena-5.2.0.tar.gz
+          JENA=5.2.0
+          curl -fsSL -o jena.tgz "https://dlcdn.apache.org/jena/binaries/apache-jena-${JENA}.tar.gz" \
+            || curl -fsSL -o jena.tgz "https://archive.apache.org/dist/jena/binaries/apache-jena-${JENA}.tar.gz"
           tar xzf jena.tgz
-          echo "$PWD/apache-jena-5.2.0/bin" >> "$GITHUB_PATH"
+          echo "$PWD/apache-jena-${JENA}/bin" >> "$GITHUB_PATH"
 
       - name: UDI smoke - fetch 1 partition, transform 500 records
         run: |
