@@ -1,0 +1,51 @@
+Medical Device Design Knowledge Graph
+Copyright (c) 2025-2026 Hofstra University
+
+Licensed under the Creative Commons Attribution 4.0 International License
+(CC BY 4.0).
+
+Full license text: https://creativecommons.org/licenses/by/4.0/legalcode
+Summary:           https://creativecommons.org/licenses/by/4.0/
+
+You are free to share and adapt this material for any purpose, including
+commercially, provided you give appropriate credit, link to the license, and
+indicate if changes were made.
+
+-----------------------------------------------------------------------------
+ATTRIBUTION
+-----------------------------------------------------------------------------
+
+Medical Device Design Knowledge Graph. Hofstra University.
+https://registry.okn.us/registry/kgs/medical-device-kg/
+
+Supported by NSF award #2535091 (Proto-OKN, subaward 5136002) and
+NIH/NIBIB award #R25EB035522.
+
+-----------------------------------------------------------------------------
+UNDERLYING DATA
+-----------------------------------------------------------------------------
+
+The source records are United States Food and Drug Administration public
+records. As works of the U.S. federal government they are not subject to
+copyright protection in the United States (17 U.S.C. Sec. 105). The CC BY 4.0
+license above applies to this project's ontology, code, transformations, and
+the compiled graph as an original selection and arrangement -- not to the
+underlying FDA facts.
+
+The U.S. Food and Drug Administration does not endorse this project. FDA logos
+and insignia are not used. Nothing here is FDA guidance, and nothing here
+should be read as implying FDA review or approval.
+
+-----------------------------------------------------------------------------
+NO WARRANTY
+-----------------------------------------------------------------------------
+
+Provided "as is", without warranty of any kind. This graph is intended for
+research and education. It is not regulatory advice, not medical advice, and
+not a substitute for consulting qualified regulatory professionals or primary
+FDA sources.
+
+Adverse event counts in this graph reflect reporting behavior and market
+exposure, not device failure rates. The graph contains no utilization
+denominators. Counts must not be presented as rates, and FDA does not verify
+that a reported device caused a reported event.
