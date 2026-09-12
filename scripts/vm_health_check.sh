@@ -89,7 +89,7 @@ if command -v riot >/dev/null 2>&1; then
     shopt -s nullglob; ttls=("$MDKG/$d"/*.ttl); shopt -u nullglob
     if [ "${#ttls[@]}" -gt 0 ]; then
       if riot --validate "${ttls[@]}" >/tmp/mdkg_riot.$$ 2>&1; then
-        cnt="$(riot --count "${ttls[@]}" 2>/dev/null | awk '{s+=$1} END{print s+0}')"
+        cnt="$(riot --count "${ttls[@]}" 2>&1 | awk -F'Triples = ' '/Triples = /{gsub(/[^0-9]/,"",$2); s+=$2} END{print s+0}')"
         ok "$d/: ${#ttls[@]} file(s) valid, $cnt triple(s)"
       else er "$d/: riot --validate failed"; sed 's/^/     /' /tmp/mdkg_riot.$$; fi
       rm -f /tmp/mdkg_riot.$$
