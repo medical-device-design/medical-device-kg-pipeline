@@ -1,0 +1,64 @@
+cff-version: 1.2.0
+message: "If you use this knowledge graph, please cite it as below."
+title: "Medical Device Design Knowledge Graph"
+abstract: >-
+  An RDF knowledge graph unifying United States FDA medical device data across
+  premarket review, product classification, recognized standards, recalls,
+  adverse events, postmarket studies, establishment registrations and facility
+  records, published on the NSF Proto-OKN Fabric to support evidence-informed
+  medical device design.
+type: dataset
+license: CC-BY-4.0
+url: "https://registry.okn.us/registry/kgs/medical-device-kg/"
+repository-code: "https://github.com/medical-device-design/medical-device-kg"
+identifiers:
+  - type: url
+    value: "https://purl.org/okn/frink/kg/medical-device-kg"
+    description: Persistent identifier for the graph
+keywords:
+  - medical devices
+  - knowledge graph
+  - RDF
+  - SPARQL
+  - FDA
+  - biomedical engineering
+  - device design
+  - regulatory science
+  - open knowledge network
+
+authors:
+  - family-names: "de Guzman"
+    given-names: "Roche C."
+    name-particle: "de"
+    affiliation: "Hofstra University"
+    email: "RocheRey.C.DeGuzman@hofstra.edu"
+    role: "Principal Investigator"
+  - family-names: "Romanelli"
+    given-names: "Marco"
+    affiliation: "Hofstra University"
+  - family-names: "Singh"
+    given-names: "Prabhjot"
+    affiliation: "Hofstra University"
+  - family-names: "Bukhari"
+    given-names: "Mustafa"
+    affiliation: "Hofstra University"
+
+contact:
+  - family-names: "de Guzman"
+    given-names: "Roche C."
+    name-particle: "de"
+    email: "RocheRey.C.DeGuzman@hofstra.edu"
+    affiliation: "Hofstra University"
+
+references:
+  - type: grant
+    title: "Proto-OKN Theme 1: Medical Device Design Knowledge Graph"
+    institution:
+      name: "National Science Foundation"
+    number: "2535091"
+    notes: "Subaward 5136002 to Hofstra University under prime award to UNC-Chapel Hill"
+  - type: grant
+    title: "Biomedical Engineering Medical Device Design Education Platform"
+    institution:
+      name: "National Institutes of Health, National Institute of Biomedical Imaging and Bioengineering"
+    number: "R25EB035522"

@@ -1,0 +1,59 @@
+# =============================================================================
+# Generated graph data — belongs in lakeFS, not in git.
+# See PUBLISHING.md. Keeping these out is deliberate, not an oversight:
+# they are large, regenerable, and already version-controlled elsewhere.
+# =============================================================================
+output/
+out/
+downloads/
+digest_ttl/
+*.ttl.bak
+*.hdt
+*.nt
+*.nq
+
+# NOTE: ontology/*.ttl and queries/*.rq ARE tracked. Do not add a blanket
+# *.ttl rule here — it would silently exclude the vocabulary.
+# Reference-only snapshot of the legacy published ontology, pulled for
+# comparison during the rebuild. Not part of the canonical vocabulary.
+ontology/ontology_CURRENT_from_lakefs.ttl
+
+# Credentials — lakeFS keys, openFDA API key. Never commit these.
+*.env
+.env*
+!.env.example
+credentials
+secrets/
+
+# Pipeline run artifacts
+*.log
+*_failed_lookups.log
+pipeline_run.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Java / Spring Boot ingestion service
+target/
+.mvn/wrapper/maven-wrapper.jar
+*.class
+
+# GraphDB local state
+graphdb_data/
+graphdb_home/
+graphdb_logs/
+graphdb_tmp/
+graphdb_work/
+*.sif
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
