@@ -1,0 +1,265 @@
+# =============================================================================
+# Medical Device Design Knowledge Graph -- self-describing layer (VoID / DCAT +
+# query guidance + competency questions).
+#
+# WHY THIS FILE EXISTS. The T-Box (ontology.ttl) labels every class and property.
+# This file adds the layer an agent needs to answer *natural-language* questions
+# well WITHOUT a separate skill being switched on in the client: it publishes,
+# inside the graph itself,
+#   1. dataset metadata (VoID/DCAT) -- what is here and how big (class counts);
+#   2. modeling hints (ex:ModelingHint) -- the handful of facts that otherwise
+#      make an LLM write silently-wrong SPARQL (hub, one label predicate,
+#      TPLC-vs-MAUDE, the MedicalDevice stub, Manufacturer != Labeler, typed
+#      dates, inferred crosswalk);
+#   3. competency questions (ex:CompetencyQuestion) -- NL question bound to intent
+#      and, for five of them, the exact SPARQL, so a query agent has worked
+#      few-shot examples in the same graph it is querying.
+# Load it alongside ontology.ttl and serve it from the endpoint. A client can then
+# `SELECT` the hints and examples at question time instead of relying on an
+# out-of-band prompt.
+#
+# COUNTS below reflect the currently PUBLISHED graph (2026-09 live snapshot,
+# still on the legacy namespace); they are restated here under the rebuild
+# namespace and are refreshed by the one regeneration after the Sept-25 demo.
+# UDIDeviceRecord is 0 until the AccessGUDID ingest runs (~5.18M when it does).
+# =============================================================================
+
+@prefix ex:      <https://bmedesign.org/medical-device-kg/ns/> .
+@prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:     <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix void:    <http://rdfs.org/ns/void#> .
+@prefix dcat:    <http://www.w3.org/ns/dcat#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix foaf:    <http://xmlns.com/foaf/0.1/> .
+
+
+# =============================================================================
+# ANNOTATION VOCABULARY  -- the meta-terms this file introduces. Declared with
+# labels so the guidance layer is itself self-describing.
+# =============================================================================
+ex:ModelingHint a owl:Class ;
+    rdfs:label "Modeling Hint" ;
+    rdfs:comment "A short piece of query guidance: a fact about how this graph is modeled that an agent must know to write correct SPARQL. Read every ex:ModelingHint before generating a query." .
+
+ex:CompetencyQuestion a owl:Class ;
+    rdfs:label "Competency Question" ;
+    rdfs:comment "A natural-language question the graph is designed to answer, bound to its intent and (for the exemplars) its exact SPARQL. Use these as few-shot patterns." .
+
+ex:queryGuidance a owl:AnnotationProperty ;
+    rdfs:label "query guidance" ;
+    rdfs:comment "Links the dataset to a modeling hint an agent should read before querying." .
+
+ex:hasCompetencyQuestion a owl:AnnotationProperty ;
+    rdfs:label "has competency question" .
+
+ex:hintText a owl:AnnotationProperty ;
+    rdfs:label "hint text" .
+
+ex:hintPriority a owl:AnnotationProperty ;
+    rdfs:label "hint priority" ;
+    rdfs:comment "1 = read first (gets queries wrong most often); higher = finer point." .
+
+ex:questionKind a owl:AnnotationProperty ;
+    rdfs:label "question kind" .
+
+ex:exampleQuery a owl:AnnotationProperty ;
+    rdfs:label "example SPARQL query" ;
+    rdfs:comment "The exact SPARQL for this competency question, as a string, for use as a few-shot example." .
+
+ex:queryFile a owl:AnnotationProperty ;
+    rdfs:label "query file" ;
+    rdfs:comment "Path in the repository to the canonical .rq file (source of truth for the query text)." .
+
+
+# =============================================================================
+# DATASET  -- VoID + DCAT
+# =============================================================================
+<https://bmedesign.org/medical-device-kg/dataset>
+    a void:Dataset, dcat:Dataset ;
+    dcterms:title "Medical Device Design Knowledge Graph" ;
+    dcterms:description "FDA device regulatory, safety, classification and postmarket data assembled as one RDF graph for device-design decision support. NSF Proto-OKN subaward 5136002; NIH/NIBIB R25EB035522, Hofstra University. Published via the FRINK federation." ;
+    dcterms:publisher "Hofstra University (Roche C. de Guzman)" ;
+    dcterms:rights "Source records are U.S. FDA / U.S. Government works (public domain). The RDF transformation, vocabulary and this metadata are released under the repository LICENSE." ;
+    dcterms:source <https://open.fda.gov/apis/device/> ;
+    void:vocabulary <https://bmedesign.org/medical-device-kg/ns/> ;
+    void:uriSpace "https://bmedesign.org/medical-device-kg/id/" ;
+    void:triples 17900000 ;    # approximate, as-published 2026-09; ~277M after UDI ingest
+    rdfs:seeAlso <https://bmedesign.org/medical-device-kg/ns/> ;
+
+    # ---- read these before writing a query (ordered by how often they matter) ----
+    ex:queryGuidance ex:hint-hub, ex:hint-label, ex:hint-completeness,
+                     ex:hint-device-layer, ex:hint-manufacturer-labeler,
+                     ex:hint-dates, ex:hint-marquee-join, ex:hint-inferred-crosswalk,
+                     ex:hint-naming ;
+
+    # ---- worked NL -> SPARQL examples ----
+    ex:hasCompetencyQuestion ex:cq01, ex:cq02, ex:cq03, ex:cq04, ex:cq05,
+                             ex:cq06, ex:cq07, ex:cq08, ex:cq09, ex:cq10 ;
+
+    # ---- class partitions with instance counts ----
+    void:classPartition
+        [ void:class ex:XrayAssemblerRecord ;         void:entities 300823 ] ,
+        [ void:class ex:K510Record ;                  void:entities 175299 ] ,
+        [ void:class ex:PMARecord ;                   void:entities 56584 ] ,
+        [ void:class ex:PMAChangeMemo ;               void:entities 55136 ] ,
+        [ void:class ex:Manufacturer ;                void:entities 53499 ] ,
+        [ void:class ex:DeviceProblem ;               void:entities 52823 ] ,
+        [ void:class ex:PatientOutcome ;              void:entities 46041 ] ,
+        [ void:class ex:RecallRecord ;                void:entities 39224 ] ,
+        [ void:class ex:RegistrationListingRecord ;   void:entities 25132 ] ,
+        [ void:class ex:DeviceFDARecord ;             void:entities 12386 ] ,
+        [ void:class ex:MDRStatistic ;                void:entities 12904 ] ,
+        [ void:class ex:Facility ;                    void:entities 9120 ] ,
+        [ void:class ex:ProductCode ;                 void:entities 8014 ] ,
+        [ void:class ex:ProductClassificationRecord ; void:entities 7071 ] ,
+        [ void:class ex:TPLCRecord ;                  void:entities 7034 ] ,
+        [ void:class ex:Recall ;                      void:entities 6843 ] ,
+        [ void:class ex:CFRTitle21Section ;           void:entities 2842 ] ,
+        [ void:class ex:RegulationNumber ;            void:entities 2265 ] ,
+        [ void:class ex:HumanitarianDeviceExemption ; void:entities 1947 ] ,
+        [ void:class ex:ProductCodeNAICSMapping ;     void:entities 1589 ] ,
+        [ void:class ex:MammographyFacility ;         void:entities 975 ] ,
+        [ void:class ex:DeNovoRecord ;                void:entities 483 ] ,
+        [ void:class ex:Postmarket522Study ;          void:entities 353 ] ,
+        [ void:class ex:CliaWaivedAnalyte ;           void:entities 152 ] ,
+        [ void:class ex:CfrPart ;                     void:entities 57 ] ,
+        [ void:class ex:IVDHomeUseTest ;              void:entities 53 ] ,
+        [ void:class ex:RecognizedConsensusStandard ; void:entities 49 ] ,
+        [ void:class ex:NAICSClassification ;         void:entities 13 ] ,
+        [ void:class ex:MAUDEReport ;                 void:entities 15284 ;
+          rdfs:comment "A ~0.06% sample of ~25.7M reports. See ex:hint-completeness." ] ,
+        [ void:class ex:MedicalDevice ;               void:entities 4099 ;
+          rdfs:comment "Legacy stub, no outbound edges. See ex:hint-device-layer." ] ,
+        [ void:class ex:UDIDeviceRecord ;             void:entities 0 ;
+          rdfs:comment "Pending the AccessGUDID ingest; ~5.18M when loaded." ] .
+
+
+# =============================================================================
+# MODELING HINTS  -- the query-correctness layer.
+# =============================================================================
+ex:hint-hub a ex:ModelingHint ; ex:hintPriority 1 ;
+    rdfs:label "Route through the product-code hub" ;
+    ex:hintText "ex:ProductCode is the central hub. Almost every cross-source question joins on it via ex:hasProductCode (inbound from record classes) and its outbound edges ex:hasClassificationRecord, ex:hasRegulationNumber, ex:hasCFRSection. When in doubt, find the product code and pivot." .
+
+ex:hint-label a ex:ModelingHint ; ex:hintPriority 1 ;
+    rdfs:label "There is exactly one label predicate" ;
+    ex:hintText "Human-readable names are on rdfs:label. There is NO ex:label. Query rdfs:label for names of product codes, regulations, GMDN terms, etc." .
+
+ex:hint-completeness a ex:ModelingHint ; ex:hintPriority 1 ;
+    rdfs:label "For postmarket safety, lead with TPLC not MAUDE" ;
+    ex:hintText "ex:TPLCRecord is FDA's own complete per-product-code aggregate -- use it for counts and trends. ex:MAUDEReport is only a ~0.06% sample (15,284 of ~25.7M); never present MAUDE row counts as totals or as failure rates, and note that MAUDE is passive surveillance with no verified causation." .
+
+ex:hint-device-layer a ex:ModelingHint ; ex:hintPriority 2 ;
+    rdfs:label "The device layer is UDIDeviceRecord, not MedicalDevice" ;
+    ex:hintText "ex:MedicalDevice is a legacy stub (4,099 nodes with a label and type but effectively no outbound edges). The real physical-device layer is ex:UDIDeviceRecord, keyed on the UDI DI. Ask device-level questions against ex:UDIDeviceRecord." .
+
+ex:hint-manufacturer-labeler a ex:ModelingHint ; ex:hintPriority 2 ;
+    rdfs:label "Manufacturer (FEI) is not Labeler (DUNS)" ;
+    ex:hintText "ex:Manufacturer is keyed on FDA's FEI; ex:Labeler is keyed on DUNS. FDA publishes no FEI-to-DUNS crosswalk, so the two are deliberately never owl:sameAs. Do not join or conflate them; resolving them is a scored skos:closeMatch problem, not identity." .
+
+ex:hint-dates a ex:ModelingHint ; ex:hintPriority 2 ;
+    rdfs:label "Dates are typed xsd:date" ;
+    ex:hintText "All dates (ex:decisionDate, ex:recallInitiationDate, ex:dateReceived, ...) are xsd:date. Filter with typed literals, e.g. FILTER(?d >= \"2024-01-01\"^^xsd:date), not string prefix matching." .
+
+ex:hint-marquee-join a ex:ModelingHint ; ex:hintPriority 3 ;
+    rdfs:label "Device-to-authorization is the UDI join" ;
+    ex:hintText "The only path from a marketed physical device to the regulatory record that authorized it is ex:UDIDeviceRecord ex:relatedK510Record ?k (510(k)/De Novo) or ex:relatedPMARecord ?p (PMA). Nothing else in the graph connects these." .
+
+ex:hint-inferred-crosswalk a ex:ModelingHint ; ex:hintPriority 3 ;
+    rdfs:label "The NAICS crosswalk is inferred, not FDA data" ;
+    ex:hintText "ex:ProductCodeNAICSMapping is a rule/LLM-assisted inference, NOT published by FDA. Its provenance (ex:mappingMethod, ex:mappingConfidence, ex:mappingSource) lives on the mapping node so authoritative-vs-inferred stays queryable. Never state a NAICS code as if FDA supplied it." .
+
+ex:hint-naming a ex:ModelingHint ; ex:hintPriority 3 ;
+    rdfs:label "The Record suffix marks A-Box source records" ;
+    ex:hintText "A class ending in 'Record' is an FDA source record (a regulatory event or document) and carries provenance. A class without it is a shared entity / join target (ex:ProductCode, ex:Manufacturer, ex:GMDNTerm) or an aggregate (ex:TPLCRecord)." .
+
+
+# =============================================================================
+# COMPETENCY QUESTIONS  -- NL bound to intent; five with full SPARQL exemplars.
+# Canonical query text lives in competency/*.rq (ex:queryFile).
+# =============================================================================
+ex:cq01 a ex:CompetencyQuestion ; ex:questionKind "connectivity" ;
+    rdfs:label "Which record types link to a product code, and how many of each?" ;
+    rdfs:comment "Tests that ProductCode is the hub and inbound edges actually land on it." ;
+    ex:queryFile "competency/cq01_product_code_connectivity.rq" ;
+    ex:exampleQuery """PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?type (COUNT(?rec) AS ?n) WHERE {
+  ?rec ex:hasProductCode ?pc ;
+       a ?type .
+}
+GROUP BY ?type
+ORDER BY DESC(?n)""" .
+
+ex:cq02 a ex:CompetencyQuestion ; ex:questionKind "coverage" ;
+    rdfs:label "How many recalls fall in each classification (Class I / II / III)?" ;
+    rdfs:comment "Coverage over recall classification." ;
+    ex:queryFile "competency/cq02_recalls_by_classification.rq" .
+
+ex:cq03 a ex:CompetencyQuestion ; ex:questionKind "date typing (D4)" ;
+    rdfs:label "Which recalls were initiated in 2024?" ;
+    rdfs:comment "Exercises typed-date filtering; a string match here would be the D4 regression." ;
+    ex:queryFile "competency/cq03_recalls_in_2024.rq" .
+
+ex:cq04 a ex:CompetencyQuestion ; ex:questionKind "marquee join" ;
+    rdfs:label "Which marketed devices link to the 510(k)/De Novo that cleared them?" ;
+    rdfs:comment "The marquee join: UDI device -> regulatory authorization. Empty = the UDI->k510 join missed. See ex:hint-marquee-join." ;
+    ex:queryFile "competency/cq04_device_to_clearance.rq" ;
+    ex:exampleQuery """PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?brand ?k WHERE {
+  ?d a ex:UDIDeviceRecord ;
+     ex:brandName ?brand ;
+     ex:relatedK510Record ?k .
+}
+LIMIT 50""" .
+
+ex:cq05 a ex:CompetencyQuestion ; ex:questionKind "design attribute" ;
+    rdfs:label "What sterilization methods do devices in a given product code use?" ;
+    rdfs:comment "Reads a labelled physical design attribute off the UDI layer." ;
+    ex:queryFile "competency/cq05_sterilization_by_product_code.rq" .
+
+ex:cq06 a ex:CompetencyQuestion ; ex:questionKind "cross-attribute" ;
+    rdfs:label "Among implantable devices, what MRI-safety statuses appear?" ;
+    rdfs:comment "Joins a UDI device to its GMDN term (implantable flag) and reads MRI-safety status." ;
+    ex:queryFile "competency/cq06_implantable_mri_safety.rq" ;
+    ex:exampleQuery """PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?mri (COUNT(?d) AS ?n) WHERE {
+  ?d a ex:UDIDeviceRecord ;
+     ex:hasGMDNTerm ?g ;
+     ex:mriSafetyStatus ?mri .
+  ?g ex:gmdnImplantable true .
+}
+GROUP BY ?mri
+ORDER BY DESC(?n)""" .
+
+ex:cq07 a ex:CompetencyQuestion ; ex:questionKind "defect guard (expect 0 rows)" ;
+    rdfs:label "Are there UDI devices with no outbound edge (orphans)?" ;
+    rdfs:comment "Guard: must return zero rows. Any row is a defect the SHACL shapes should also catch." ;
+    ex:queryFile "competency/cq07_orphan_devices_guard.rq" .
+
+ex:cq08 a ex:CompetencyQuestion ; ex:questionKind "defect guard (expect 0 rows)" ;
+    rdfs:label "Are there UDI device records missing provenance?" ;
+    rdfs:comment "Guard: must return zero rows." ;
+    ex:queryFile "competency/cq08_missing_provenance_guard.rq" .
+
+ex:cq09 a ex:CompetencyQuestion ; ex:questionKind "coverage snapshot" ;
+    rdfs:label "How many instances are there of each class?" ;
+    rdfs:comment "Coverage snapshot; compare against the class partitions above. A class dropping to zero is a regression." ;
+    ex:queryFile "competency/cq09_class_counts.rq" ;
+    ex:exampleQuery """PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?type (COUNT(?s) AS ?n) WHERE {
+  ?s a ?type .
+}
+GROUP BY ?type
+ORDER BY DESC(?n)""" .
+
+ex:cq10 a ex:CompetencyQuestion ; ex:questionKind "distribution structuring" ;
+    rdfs:label "Which recalls were distributed to a given US state?" ;
+    rdfs:comment "Uses ex:distributedToState, structured from FDA's free-text distribution pattern by distribution_parser.py; the join key an external state-keyed graph would use. Change the state code as needed." ;
+    ex:queryFile "competency/cq10_recalls_by_state.rq" ;
+    ex:exampleQuery """PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?r WHERE {
+  ?r ex:distributedToState "NY" .
+}
+LIMIT 50""" .
