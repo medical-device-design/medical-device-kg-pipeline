@@ -24,9 +24,22 @@ neighborhood-information-kg, soc-kg, ...) can now join to a recall. This is the
 entirely in our own data and needs no one else's cooperation to prove.
 
 Deterministic; no network. Run `python3 distribution_parser.py` for the self-test.
+
+IRIs: the recall subject is minted by iri.py (iri.recall), never built here --
+so the structured triples land on the SAME recall node the recalls converter
+mints. (Before this was folded in, the local copy kept hyphens -- "z-0001-2025"
+-- while iri.recall slugs to "z_0001_2025", so the two would not have joined.)
 """
 
+import os
 import re
+import sys
+
+# iri.py lives in the same pipeline/ directory; it is the ONLY source of IRIs.
+_PIPELINE_DIR = os.path.dirname(os.path.abspath(__file__))
+if _PIPELINE_DIR not in sys.path:
+    sys.path.insert(0, _PIPELINE_DIR)
+import iri  # noqa: E402
 
 # 50 states + DC + the five inhabited US territories FDA uses in recall data.
 US_STATES = {
@@ -97,18 +110,14 @@ def parse_distribution(text):
 
 # --------------------------------------------------------------------------
 # RDF emission -- what the structured triples look like in the graph.
-# Uses the rebuild namespace and iri.py where available; falls back to a literal
-# base so this file also runs standalone for the demo.
+# The recall subject is minted by iri.recall(); this file mints no IRIs itself.
 # --------------------------------------------------------------------------
-NS = "https://bmedesign.org/medical-device-kg/ns/"
-ID = "https://bmedesign.org/medical-device-kg/id/"
-
-
 def to_rdf(recall_number, parsed):
     """Emit the structured distribution as Turtle. Each US state becomes an
-    explicit ex:distributedToState edge -- a join key an external graph can use."""
-    subj = f"<{ID}recall/{recall_number.lower()}>"
-    lines = [f"{subj}"]
+    explicit ex:distributedToState edge -- a join key an external graph can use.
+    The subject is iri.recall(recall_number), i.e. exactly the node the recalls
+    converter minted for this recall."""
+    subj = f"<{iri.recall(recall_number)}>"
     triples = []
     for st in parsed["us_states"]:
         triples.append(f'ex:distributedToState "{st}"')
@@ -155,6 +164,10 @@ def _selftest():
     r = to_rdf("Z-0001-2025", c)
     assert 'ex:distributedToState "NJ"' in r and 'ex:distributedToState "WI"' in r
     assert "distributionPattern" in r   # provenance preserved
+    # subject is the iri.py recall node -- same slug the recalls converter mints,
+    # NOT the old hyphen-preserving "z-0001-2025"
+    assert r.startswith(f"<{iri.recall('Z-0001-2025')}>"), r.splitlines()[0]
+    assert "recall/z_0001_2025" in r and "z-0001-2025" not in r
 
     print("distribution_parser.py self-test PASSED.")
 
