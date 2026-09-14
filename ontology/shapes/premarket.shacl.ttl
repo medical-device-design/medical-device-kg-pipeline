@@ -1,0 +1,98 @@
+# SHACL shapes for the premarket + classification sources
+# (k510, pma, classification) and the shared ProductCode / RegulationNumber hubs.
+#
+# Encodes the model rules the rebuild must not silently violate: typed dates (D4),
+# typed booleans, one label predicate (D5/D6), mandatory provenance, and the
+# ProductCode hub. Run with Jena:
+#     shacl validate --shapes ontology/shapes/premarket.shacl.ttl --data out/k510.ttl
+#
+# Severity note: keys/typing/provenance are sh:Violation (fail the gate). Hub
+# completeness (a ProductCode's label + class) is sh:Warning, because non-authoritative
+# sources legitimately emit partial ProductCode stubs that classification completes
+# once the sources are loaded together.
+
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex:   <https://bmedesign.org/medical-device-kg/ns/> .
+@prefix :     <https://bmedesign.org/medical-device-kg/shapes/> .
+
+# ---------------------------------------------------------------------------
+# 510(k) clearance record
+# ---------------------------------------------------------------------------
+:K510RecordShape a sh:NodeShape ;
+    sh:targetClass ex:K510Record ;
+    sh:property [ sh:path ex:kNumber ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:message "K510Record must have exactly one ex:kNumber." ] ;
+    sh:property [ sh:path ex:decisionDate ; sh:datatype xsd:date ;
+                  sh:message "decisionDate is not xsd:date (D4)." ] ;
+    sh:property [ sh:path ex:dateReceived ; sh:datatype xsd:date ;
+                  sh:message "dateReceived is not xsd:date (D4)." ] ;
+    sh:property [ sh:path ex:thirdPartyFlag ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:expeditedReviewFlag ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:hasProductCode ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:hasRegulationNumber ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:sourceRecordId ; sh:minCount 1 ;
+                  sh:message "Missing sourceRecordId — provenance required." ] ;
+    sh:property [ sh:path ex:sourceDataset ; sh:minCount 1 ;
+                  sh:message "Missing sourceDataset — provenance required." ] .
+
+# ---------------------------------------------------------------------------
+# PMA approval / supplement record
+# ---------------------------------------------------------------------------
+:PMARecordShape a sh:NodeShape ;
+    sh:targetClass ex:PMARecord ;
+    sh:property [ sh:path ex:pmaNumber ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:message "PMARecord must have exactly one ex:pmaNumber." ] ;
+    sh:property [ sh:path ex:decisionDate ; sh:datatype xsd:date ;
+                  sh:message "decisionDate is not xsd:date (D4)." ] ;
+    sh:property [ sh:path ex:dateReceived ; sh:datatype xsd:date ] ;
+    sh:property [ sh:path ex:expeditedReviewFlag ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:supplementOf ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:hasProductCode ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:hasRegulationNumber ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:sourceRecordId ; sh:minCount 1 ;
+                  sh:message "Missing sourceRecordId — provenance required." ] ;
+    sh:property [ sh:path ex:sourceDataset ; sh:minCount 1 ] .
+
+# ---------------------------------------------------------------------------
+# Product classification record (authoritative source of the ProductCode hub)
+# ---------------------------------------------------------------------------
+:ProductClassificationRecordShape a sh:NodeShape ;
+    sh:targetClass ex:ProductClassificationRecord ;
+    sh:property [ sh:path ex:productCode ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:message "ProductClassificationRecord must have one ex:productCode." ] ;
+    sh:property [ sh:path ex:implantFlag ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:lifeSustainSupportFlag ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:gmpExemptFlag ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:thirdPartyFlag ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:hasProductCode ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:sourceRecordId ; sh:minCount 1 ] ;
+    sh:property [ sh:path ex:sourceDataset ; sh:minCount 1 ] .
+
+# ---------------------------------------------------------------------------
+# ProductCode — THE hub. In the assembled graph it must carry a label and class
+# (from classification). Those are Warnings so a single-source file that emits a
+# partial stub does not fail the gate; typing of the flags is enforced.
+# ---------------------------------------------------------------------------
+:ProductCodeShape a sh:NodeShape ;
+    sh:targetClass ex:ProductCode ;
+    sh:property [ sh:path ex:productCode ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:message "ProductCode must have exactly one ex:productCode literal." ] ;
+    sh:property [ sh:path rdfs:label ; sh:minCount 1 ; sh:severity sh:Warning ;
+                  sh:message "ProductCode has no rdfs:label (completed by classification)." ] ;
+    sh:property [ sh:path ex:deviceClass ; sh:minCount 1 ; sh:severity sh:Warning ;
+                  sh:message "ProductCode has no deviceClass (completed by classification)." ] ;
+    sh:property [ sh:path ex:implantable ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:lifeSustaining ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:hasRegulationNumber ; sh:nodeKind sh:IRI ] .
+
+# ---------------------------------------------------------------------------
+# RegulationNumber — 21 CFR regulation node.
+# ---------------------------------------------------------------------------
+:RegulationNumberShape a sh:NodeShape ;
+    sh:targetClass ex:RegulationNumber ;
+    sh:property [ sh:path ex:regulationNumber ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:message "RegulationNumber must have one ex:regulationNumber." ] ;
+    sh:property [ sh:path rdfs:label ; sh:minCount 1 ; sh:severity sh:Warning ] .

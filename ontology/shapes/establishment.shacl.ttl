@@ -1,0 +1,35 @@
+# SHACL shapes for the establishment layer (registration & listing, manufacturers).
+
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex:   <https://bmedesign.org/medical-device-kg/ns/> .
+@prefix :     <https://bmedesign.org/medical-device-kg/shapes/> .
+
+# ---------------------------------------------------------------------------
+# Registration & listing record (the geographic layer)
+# ---------------------------------------------------------------------------
+:RegistrationListingRecordShape a sh:NodeShape ;
+    sh:targetClass ex:RegistrationListingRecord ;
+    # identity: at least one of registrationNumber / feiNumber
+    sh:or (
+        [ sh:path ex:registrationNumber ; sh:minCount 1 ]
+        [ sh:path ex:feiNumber ; sh:minCount 1 ]
+    ) ;
+    sh:message "RegistrationListingRecord needs a registrationNumber or feiNumber." ;
+    sh:property [ sh:path ex:initialImporterFlag ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:hasManufacturer ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:hasProductCode ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:sourceRecordId ; sh:minCount 1 ;
+                  sh:message "Missing sourceRecordId — provenance required." ] ;
+    sh:property [ sh:path ex:sourceDataset ; sh:minCount 1 ] .
+
+# ---------------------------------------------------------------------------
+# Manufacturer — keyed on FEI (kept separate from UDI's DUNS-based Labeler).
+# ---------------------------------------------------------------------------
+:ManufacturerShape a sh:NodeShape ;
+    sh:targetClass ex:Manufacturer ;
+    sh:property [ sh:path ex:feiNumber ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:message "Manufacturer must carry exactly one FEI number (the key)." ] ;
+    sh:property [ sh:path rdfs:label ; sh:minCount 1 ; sh:severity sh:Warning ;
+                  sh:message "Manufacturer has no rdfs:label." ] .
