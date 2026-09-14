@@ -1,0 +1,44 @@
+# SHACL shapes for the postmarket-safety sources (recalls, MAUDE event).
+# Typed dates (D4), mandatory provenance, IRI-typed cross-links.
+
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex:   <https://bmedesign.org/medical-device-kg/ns/> .
+@prefix :     <https://bmedesign.org/medical-device-kg/shapes/> .
+
+# ---------------------------------------------------------------------------
+# Recall enforcement report
+# ---------------------------------------------------------------------------
+:RecallRecordShape a sh:NodeShape ;
+    sh:targetClass ex:RecallRecord ;
+    sh:property [ sh:path ex:recallNumber ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:message "RecallRecord must have exactly one ex:recallNumber." ] ;
+    sh:property [ sh:path ex:recallInitiationDate ; sh:datatype xsd:date ;
+                  sh:message "recallInitiationDate is not xsd:date (D4)." ] ;
+    sh:property [ sh:path ex:reportDate ; sh:datatype xsd:date ;
+                  sh:message "reportDate is not xsd:date (D4)." ] ;
+    sh:property [ sh:path ex:relatedK510Record ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:relatedPMARecord ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:hasProductCode ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:sourceRecordId ; sh:minCount 1 ;
+                  sh:message "Missing sourceRecordId — provenance required." ] ;
+    sh:property [ sh:path ex:sourceDataset ; sh:minCount 1 ] .
+
+# ---------------------------------------------------------------------------
+# MAUDE adverse-event report
+# ---------------------------------------------------------------------------
+:MAUDEReportShape a sh:NodeShape ;
+    sh:targetClass ex:MAUDEReport ;
+    sh:property [ sh:path ex:reportNumber ; sh:minCount 1 ;
+                  sh:message "MAUDEReport must have an ex:reportNumber." ] ;
+    sh:property [ sh:path ex:dateReceived ; sh:datatype xsd:date ;
+                  sh:message "dateReceived is not xsd:date (D4)." ] ;
+    sh:property [ sh:path ex:dateOfEvent ; sh:datatype xsd:date ;
+                  sh:message "dateOfEvent is not xsd:date (D4)." ] ;
+    sh:property [ sh:path ex:relatedK510Record ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:relatedPMARecord ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:hasProductCode ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:sourceRecordId ; sh:minCount 1 ;
+                  sh:message "Missing sourceRecordId — provenance required." ] ;
+    sh:property [ sh:path ex:sourceDataset ; sh:minCount 1 ] .
