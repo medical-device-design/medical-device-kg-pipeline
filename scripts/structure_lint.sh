@@ -33,14 +33,13 @@ else
   echo "   PASS"
 fi
 
-echo "== 4. IRIs minted only in pipeline/iri.py (warn) =="
+echo "== 4. IRIs minted only in pipeline/iri.py =="
 hits="$(git ls-files 'pipeline/**/*.py' 'pipeline/*.py' | grep -v 'pipeline/iri.py' \
         | xargs grep -lE 'https?://[^\"'\'' ]*medical-device-kg/(ns|id)/' 2>/dev/null || true)"
 if [ -n "$hits" ]; then
-  echo "   WARN: base IRI hardcoded outside iri.py (should route through iri.py):"; printf '     %s\n' $hits
-  echo "   (distribution_parser.py keeps a local copy for standalone demo use; fold into iri.py when wired in.)"
+  echo "   FAIL: base IRI hardcoded outside iri.py (must route through iri.py):"; printf '     %s\n' $hits; fail=1
 else
-  echo "   PASS"
+  echo "   PASS -- every module mints IRIs through iri.py"
 fi
 
 echo "== 5. required files present =="
