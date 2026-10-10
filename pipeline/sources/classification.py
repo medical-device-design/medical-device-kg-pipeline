@@ -42,18 +42,8 @@ def fetch(dest):
 
 
 def _iter_records(src):
-    src = Path(src)
-    paths = sorted(set(src.glob("*.json")) | set(src.glob("*.zip")) | set(src.glob("*.json.zip")))
-    for p in paths:
-        if p.name.endswith(".zip"):
-            with zipfile.ZipFile(p) as z:
-                for n in z.namelist():
-                    if n.endswith(".json"):
-                        for rec in json.loads(z.read(n)).get("results", []):
-                            yield rec
-        else:
-            for rec in json.loads(p.read_text(encoding="utf-8")).get("results", []):
-                yield rec
+    """Stream records one at a time (base.iter_openfda_results; ijson if installed)."""
+    yield from base.iter_openfda_results(src)
 
 
 def transform(src, out, retrieved_at=None):
@@ -107,7 +97,7 @@ def transform(src, out, retrieved_at=None):
                 ("ex:medicalSpecialtyDescription", common.lit(r.get("medical_specialty_description"))),
                 ("ex:implantable", common.bool_lit(r.get("implant_flag"))),
                 ("ex:lifeSustaining", common.bool_lit(r.get("life_sustain_support_flag"))),
-                ("ex:hasClassification", f"<{iri.classification(pc)}>"),
+                ("ex:hasClassificationRecord", f"<{iri.classification(pc)}>"),
             ]
             if reg:
                 hub_pairs.append(("ex:hasRegulationNumber", f"<{iri.regulation(reg)}>"))
@@ -157,7 +147,7 @@ def _selftest():
     assert f"<{iri.classification('FRN')}>" in text and "ex:ProductClassificationRecord" in text
     assert f"<{iri.product_code('FRN')}>" in text and 'rdfs:label "Pump, Infusion"' in text
     assert "ex:implantable \"true\"^^xsd:boolean" in text          # LWR implant_flag Y
-    assert "ex:hasClassification" in text
+    assert "ex:hasClassificationRecord" in text
     assert f"<{iri.regulation('880.5725')}>" in text and "ex:RegulationNumber" in text
     assert text.count("a ex:RegulationNumber") == 2               # two reg nodes, deduped
     assert "ex:sourceDataset \"device/classification\"" in text
