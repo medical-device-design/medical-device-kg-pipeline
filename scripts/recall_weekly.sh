@@ -1,7 +1,7 @@
 #!/bin/bash
 # recall_weekly.sh -- weekly refresh + validation + monitoring of the recall layer on VM .83.
 #
-# Installed in roche's crontab (Mondays 05:30):
+# Installed in <user>'s crontab on the build VM (Mondays 05:30):
 #   30 5 * * 1  /srv/medical-device-kg/work/rebuild-stage3-sources/scripts/recall_weekly.sh
 #
 # 1. bulk-downloads both openFDA recall sources (enforcement + recall database)
