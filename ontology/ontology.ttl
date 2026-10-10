@@ -47,7 +47,7 @@
 <https://bmedesign.org/medical-device-kg/ns/>
     a owl:Ontology ;
     rdfs:label "Medical Device Design Knowledge Graph vocabulary" ;
-    rdfs:comment "FDA device regulatory, safety and postmarket data as one graph. NSF Proto-OKN subaward 5136002; NIH/NIBIB R25EB035522. Hofstra University." ;
+    rdfs:comment "FDA device regulatory, safety and postmarket data as one graph. NSF Proto-OKN subaward 5136002; NIH/NIBIB R25EB035522. PI: Roche C. de Guzman." ;
     owl:versionInfo "rebuild-2026-09" .
 
 

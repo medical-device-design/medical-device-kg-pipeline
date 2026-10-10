@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # migrate_namespace.sh — rewrite the retired third-party namespace to the
-# Hofstra-owned one, in place, with verification.
+# project-owned one, in place, with verification.
 #
 #   ./scripts/migrate_namespace.sh <directory-of-ttl-files>
 #

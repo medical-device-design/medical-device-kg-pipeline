@@ -6,7 +6,7 @@ Everyone on the project now works in **one shared place**, under version control
 publishing through **one documented path**. No more three copies in three home
 directories. No more files that vanish when someone's account is cleaned up.
 
-Server: `build-vm` = **<build-vm-ip>** (SSH, Hofstra VPN required)
+Server: `build-vm` = **<build-vm-ip>** (SSH, university VPN required)
 Project root: **`/srv/medical-device-kg`** — call it `$MDKG` (set for you automatically)
 
 ---

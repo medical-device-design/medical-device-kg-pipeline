@@ -149,7 +149,7 @@ def fetch(dest, with_details=True, delay=1.0, limit=None):
             if p.exists() and p.stat().st_size > 1000:
                 continue
             req = urllib.request.Request(DETAIL_URL.format(sid),
-                                         headers={"User-Agent": "medical-device-kg/rebuild (Hofstra University)"})
+                                         headers={"User-Agent": "medical-device-kg/rebuild (bmedesign.org)"})
             try:
                 p.write_bytes(urllib.request.urlopen(req, timeout=60).read())
                 fetched += 1

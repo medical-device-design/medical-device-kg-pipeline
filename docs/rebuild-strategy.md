@@ -1,6 +1,6 @@
 # Rebuild Strategy
 
-**Decided 2026-09-09.** Execution host: **Hofstra VM 10.22.13.83**, cron-scheduled.
+**Decided 2026-09-09.** Execution host: **`build-vm`**, cron-scheduled.
 Scope: **full RDF model rebuild**, done as a single regeneration together with the
 namespace migration.
 
@@ -293,7 +293,7 @@ Before any of this runs, and these are real blockers today:
 |---|---|---|
 | Now → Sep 25 | **Freeze.** No regeneration. Graph stays as demonstrated. | — |
 | Now → Sep 25 | Write `iri.py`, `common.py`, SHACL shapes. Pure authoring, touches nothing live. | — |
-| Now → Sep 25 | Resolve .83 access and disk. Get credentials on a service account. | Prabhjot, Hofstra IT |
+| Now → Sep 25 | Resolve .83 access and disk. Get credentials on a service account. | Prabhjot, university IT |
 | Now → Sep 25 | Complete repo transfer to `medical-device-design`; registry `homepage:` PR. | Prabhjot accepting the org invite |
 | Sep 26 | Rewrite source modules against the new contract. Bulk downloads throughout. | `iri.py` |
 | Oct | **The one rebuild.** New namespace + fixed model + full-coverage MAUDE and standards, all regenerated together. Tag `v0.1.0`. | all of the above |

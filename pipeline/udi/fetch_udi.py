@@ -30,7 +30,7 @@ import time
 import urllib.request
 
 MANIFEST_URL = "https://api.fda.gov/download.json"
-UA = "medical-device-kg/1.0 (Hofstra University; NSF Proto-OKN 2535091)"
+UA = "medical-device-kg/1.0 (bmedesign.org; NSF Proto-OKN 2535091)"
 
 
 def get_json(url):

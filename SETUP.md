@@ -11,7 +11,7 @@ github.com → **+** → **New organization** → Free plan.
 | Field | Value |
 |---|---|
 | Handle | `medical-device-design` |
-| Display name | Medical Device Design Knowledge Graph — Hofstra University |
+| Display name | Medical Device Design Knowledge Graph |
 | Contact email | an address you will hold indefinitely |
 
 Use an email that outlives the award. The organization is meant to survive individual
