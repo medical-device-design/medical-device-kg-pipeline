@@ -112,27 +112,46 @@ def _needs_refetch(path):
 # ===========================================================================
 #  Contract
 # ===========================================================================
-def fetch(dest, delay=1.0, limit=None):
+def fetch(dest, delay=1.0, limit=None, workers=3):
+    """At most one request START per `delay` seconds overall (FDA politeness), with up to
+    `workers` requests in flight so the ~2 s page latency does not cut the rate to 1/3."""
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
     dest = Path(dest)
     pages = dest / "pages"
     pages.mkdir(parents=True, exist_ok=True)
     tg = targets(dest.parent)
     (dest / "targets.json").write_text(json.dumps(tg), encoding="utf-8")
-    fetched = errors = 0
-    for rn, cid in (tg[:limit] if limit else tg):
+    todo = [(rn, cid) for rn, cid in (tg[:limit] if limit else tg)
+            if _needs_refetch(pages / f"{cid}.html")]
+    lock, next_slot = threading.Lock(), [time.monotonic()]
+    counts = {"fetched": 0, "errors": 0}
+
+    def get(item):
+        _, cid = item
+        with lock:                                     # global rate limit: 1 start per `delay`
+            wait = next_slot[0] - time.monotonic()
+            next_slot[0] = max(next_slot[0], time.monotonic()) + delay
+        if wait > 0:
+            time.sleep(wait)
         p = pages / f"{cid}.html"
-        if not _needs_refetch(p):
-            continue
         req = urllib.request.Request(PAGE_URL.format(cid), headers={"User-Agent": UA})
         try:
             body = urllib.request.urlopen(req, timeout=60).read()
-            p.write_bytes(body)
-            fetched += 1
+            tmp = p.with_suffix(".part")
+            tmp.write_bytes(body)
+            tmp.replace(p)                             # never leave a half-written page
             (pages / f"{cid}.error").unlink(missing_ok=True)
+            with lock:
+                counts["fetched"] += 1
         except Exception as e:                         # one bad page must not stop the run
             (pages / f"{cid}.error").write_text(str(e), encoding="utf-8")
-            errors += 1
-        time.sleep(delay)
+            with lock:
+                counts["errors"] += 1
+
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        list(ex.map(get, todo))
+    fetched, errors = counts["fetched"], counts["errors"]
     (dest / "fetch_log.json").write_text(json.dumps(
         {"date": base.today(), "targets": len(tg), "fetched_now": fetched, "errors": errors}), encoding="utf-8")
     print(f"  recall_class: {len(tg):,} recalls need a class; fetched {fetched:,} pages now; {errors} errors")
