@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 classification.py -- FDA product classification (openFDA device/classification) -> RDF.
 
@@ -79,6 +79,9 @@ def transform(src, out, retrieved_at=None):
                 ("ex:implantFlag", common.bool_lit(r.get("implant_flag"))),
                 ("ex:lifeSustainSupportFlag", common.bool_lit(r.get("life_sustain_support_flag"))),
                 ("ex:thirdPartyFlag", common.bool_lit(r.get("third_party_flag"))),
+                ("ex:summaryMalfunctionReporting", common.lit(r.get("summary_malfunction_reporting"))),
+                ("ex:medicalSpecialtyCode", common.lit(r.get("medical_specialty"))),
+                ("ex:unclassifiedReason", common.lit(r.get("unclassified_reason"))),
                 ("ex:hasProductCode", f"<{iri.product_code(pc)}>"),
             ]
             if reg:

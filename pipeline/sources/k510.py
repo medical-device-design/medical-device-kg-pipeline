@@ -101,6 +101,11 @@ def transform(src, out, retrieved_at=None):
                 ("ex:city", common.lit(r.get("city"))),
                 ("ex:state", common.lit(r.get("state"))),
                 ("ex:postalCode", common.lit(r.get("postal_code") or r.get("zip_code"))),
+                ("ex:country", common.lit(r.get("country_code"))),
+                ("ex:address", common.lit(", ".join(x for x in (r.get("address_1"), r.get("address_2")) if x))),
+                ("ex:reviewPanel", common.lit(r.get("review_advisory_committee"))),
+                ("ex:statementOrSummary", common.lit(r.get("statement_or_summary"))),
+                # "contact" is the submitter's named contact person -> deliberately not ingested
             ]
             if pc:
                 pairs.append(("ex:productCode", common.lit(pc)))

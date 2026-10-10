@@ -279,6 +279,49 @@ def clia_analyte(analyte_id):
     return _instance("clia-analyte", slug(analyte_id))
 
 
+def clia_test_system(test_system_id):
+    """A CLIA test system (FDA/CDC TEST_SYSTEM_ID).
+        clia_test_system('21528') -> .../id/clia-test-system/21528"""
+    return _instance("clia-test-system", slug(test_system_id))
+
+
+def clia_categorization(source, key):
+    """One CLIA complexity categorization row (test system x analyte x document),
+    keyed by its source file and that file's row identity.
+        clia_categorization('fda', 'X140005-21528-12') -> .../id/clia-categorization/fda/x140005_21528_12"""
+    return _instance("clia-categorization", slug(source), slug(key))
+
+
+def ivd_home_use_test(detail_id):
+    """An FDA OTC / home-use IVD test listing (cfIVD detail id).
+        ivd_home_use_test('12894') -> .../id/ivd-home-use-test/12894"""
+    return _instance("ivd-home-use-test", slug(detail_id))
+
+
+def fda_document(number):
+    """A Devices@FDA decision document (510(k), De Novo, PMA, HDE number).
+        fda_document('K760382') -> .../id/fda-document/k760382"""
+    return _instance("fda-document", slug(number))
+
+
+def naics(code):
+    """A NAICS industry code (shared join key to sudokn).
+        naics('334516') -> .../id/naics/334516"""
+    return _instance("naics", slug(code))
+
+
+def naics_mapping(product_code_value):
+    """The inferred product-code -> NAICS crosswalk assertion for one product code.
+        naics_mapping('BSE') -> .../id/naics-mapping/bse"""
+    return _instance("naics-mapping", slug(product_code_value))
+
+
+def geometry(kind, key):
+    """A GeoSPARQL geometry for a located entity.
+        geometry('establishment', '3001234567') -> .../id/geometry/establishment/3001234567"""
+    return _instance("geometry", slug(kind), slug(key))
+
+
 # ---- UDI / AccessGUDID (the physical-device layer) -----------------------
 #  These MUST match udi_to_rdf.py exactly -- that converter should be refactored
 #  to import these functions rather than mint its own strings.
@@ -379,6 +422,13 @@ def _selftest():
         mammography_facility("FAC0001"):     "mammography-facility/fac0001",
         xray_assembler("XA0001"):            "xray-assembler/xa0001",
         clia_analyte("12345"):               "clia-analyte/12345",
+        clia_test_system("21528"):           "clia-test-system/21528",
+        clia_categorization("fda", "X140005-21528-12"): "clia-categorization/fda/x140005_21528_12",
+        ivd_home_use_test("12894"):          "ivd-home-use-test/12894",
+        fda_document("K760382"):             "fda-document/k760382",
+        naics("334516"):                     "naics/334516",
+        naics_mapping("BSE"):                "naics-mapping/bse",
+        geometry("establishment", "3001234567"): "geometry/establishment/3001234567",
         udi_device("248d4b67-35ce-438b-86f3-d399d065dcc9"):
                                              "udi/248d4b67-35ce-438b-86f3-d399d065dcc9",
         udi_identifier("GS1", "00889842"):   "udi-identifier/gs1/00889842",

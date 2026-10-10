@@ -103,10 +103,16 @@ def transform(src, out, retrieved_at=None):
                 ("ex:city", common.lit(r.get("city"))),
                 ("ex:state", common.lit(r.get("state"))),
                 ("ex:country", common.lit(r.get("country"))),
+                ("ex:address", common.lit(", ".join(x for x in (r.get("address_1"), r.get("address_2")) if x))),
+                ("ex:postalCode", common.lit(r.get("postal_code"))),
+                ("ex:productType", common.lit(r.get("product_type"))),
             ]
 
-            # code_info (lots/serials): kept in full unless CODE_INFO_CAP is set
-            pairs += common.capped_pairs("ex:codeInfo", r.get("code_info"), CODE_INFO_CAP)
+            # code_info (lots/serials): kept in full unless CODE_INFO_CAP is set.
+            # FDA moves the overflow of long lot lists into more_code_info; it is joined
+            # back so one ex:codeInfo literal holds the complete published list.
+            code = " ".join(str(x).strip() for x in (r.get("code_info"), r.get("more_code_info")) if x and str(x).strip())
+            pairs += common.capped_pairs("ex:codeInfo", code or None, CODE_INFO_CAP)
             # structured geography from the free-text field (task: distribution parser)
             pairs += distribution_pairs(r.get("distribution_pattern"))
 

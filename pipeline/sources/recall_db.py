@@ -104,6 +104,10 @@ def transform(src, out, retrieved_at=None):
                 ("ex:city", common.lit(r.get("city"))),
                 ("ex:state", common.lit(r.get("state"))),
                 ("ex:postalCode", common.lit(r.get("postal_code"))),
+                ("ex:country", common.lit(r.get("country"))),
+                ("ex:address", common.lit(", ".join(x for x in (r.get("address_1"), r.get("address_2")) if x))),
+                ("ex:eventDateCreated", common.date_lit(r.get("event_date_created"))),
+                # additional_info_contact names a person -> deliberately not ingested
             ]
             # code_info (lots/serials): kept in full unless CODE_INFO_CAP is set
             pairs += common.capped_pairs("ex:codeInfo", r.get("code_info"), CODE_INFO_CAP)

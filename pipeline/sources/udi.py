@@ -92,6 +92,10 @@ def transform(src, out, retrieved_at=None):
                 ("ex:recordStatus", common.lit(r.get("record_status"))),
                 ("ex:commercialDistributionStatus",
                  common.lit(r.get("commercial_distribution_status"))),
+                ("ex:commercialDistributionEndDate",
+                 common.date_lit(r.get("commercial_distribution_end_date"))),
+                ("ex:publicVersionNumber", common.lit(r.get("public_version_number"))),
+                ("ex:publicVersionStatus", common.lit(r.get("public_version_status"))),
                 ("ex:deviceCountInBasePackage",
                  common.int_lit(r.get("device_count_in_base_package"))),
 
@@ -148,6 +152,11 @@ def transform(src, out, retrieved_at=None):
                     pairs.append(("ex:relatedK510Record", _ref(iri.k510(num))))
                 elif u.startswith("P") or u.startswith("N"):
                     pairs.append(("ex:relatedPMARecord", _ref(iri.pma(num))))
+                    supp = str(sub.get("supplement_number") or "").strip()
+                    if supp:      # the specific supplement that covers this device version
+                        pairs.append(("ex:relatedPMARecord", _ref(iri.pma(num, supp))))
+                elif u.startswith("H"):
+                    pairs.append(("ex:relatedHDE", _ref(iri.hde(num))))
                 else:
                     pairs.append(("ex:premarketSubmissionNumber", common.lit(num)))
 
@@ -156,6 +165,16 @@ def transform(src, out, retrieved_at=None):
                 agency = str(ident.get("issuing_agency") or "unknown").strip()
                 if iid:
                     pairs.append(("ex:hasIdentifier", _ref(iri.udi_identifier(agency, iid))))
+
+            # clinically relevant dimensions (catheter gauge, length, diameter ...)
+            for sz in r.get("device_sizes") or []:
+                val = " ".join(str(x) for x in ((sz.get("value") or ""), (sz.get("unit") or "")) if x).strip()
+                text = str(sz.get("text") or "").strip()
+                body = "; ".join(x for x in (val, text) if x)
+                if body:
+                    label = str(sz.get("type") or "").strip()
+                    pairs.append(("ex:deviceSize", common.lit(f"{label}: {body}" if label else body)))
+            # customer_contacts (support phone/e-mail) are deliberately not ingested
 
             for pred, obj in common.provenance(DATASET, key,
                                                source_url=f"{SOURCE_URL_BASE}{key}",
@@ -187,6 +206,8 @@ def transform(src, out, retrieved_at=None):
                     ("ex:packageType", common.lit(ident.get("package_type"))),
                     ("ex:quantityPerUnitOfUse", common.int_lit(ident.get("quantity_per_package"))),
                     ("ex:unitOfUseId", common.lit(ident.get("unit_of_use_id"))),
+                    ("ex:packageStatus", common.lit(ident.get("package_status"))),
+                    ("ex:packageDiscontinueDate", common.date_lit(ident.get("package_discontinue_date"))),
                     ("ex:belongsToDevice", _ref(dev)),
                 ])
 
@@ -263,11 +284,16 @@ def _selftest():
          "product_codes": [{"code": "DZE"}],
          "gmdn_terms": [{"code": "35204", "name": "Defibrillator", "implantable": "true"}],
          "premarket_submissions": [{"submission_number": "K123456"},
-                                   {"submission_number": "P900001"},
+                                   {"submission_number": "P900001", "supplement_number": "S012"},
                                    {"submission_number": "DEN140010"}],
+         "commercial_distribution_end_date": "2024-05-01",
+         "device_sizes": [{"type": "Catheter Gauge", "value": "20", "unit": "Gauge"},
+                          {"type": "Device Size Text, specify", "text": "Small"}],
+         "customer_contacts": [{"phone": "+1(555)555-0100", "email": "help@example.com"}],
          "identifiers": [{"id": "00812345678901", "issuing_agency": "GS1",
                           "type": "Primary", "package_type": "Box",
-                          "quantity_per_package": "10"}],
+                          "quantity_per_package": "10", "package_status": "Not in Commercial Distribution",
+                          "package_discontinue_date": "2023-01-02"}],
          "storage": [{"type": "Storage Environment Temperature",
                       "high": {"value": "25", "unit": "Degrees Celsius"},
                       "low": {"value": "2", "unit": "Degrees Celsius"}}]},
@@ -289,7 +315,10 @@ def _selftest():
     assert f"<{iri.product_code('DZE')}>" in text
     assert f"<{iri.gmdn('35204')}>" in text and "ex:GMDNTerm" in text
     assert f"<{iri.k510('K123456')}>" in text and f"<{iri.k510('DEN140010')}>" in text
-    assert f"<{iri.pma('P900001')}>" in text
+    assert f"<{iri.pma('P900001')}>" in text and f"<{iri.pma('P900001', 'S012')}>" in text
+    assert 'ex:deviceSize "Catheter Gauge: 20 Gauge"' in text and 'Small"' in text
+    assert '"2024-05-01"^^xsd:date' in text and 'ex:packageStatus "Not in Commercial Distribution"' in text
+    assert "help@example.com" not in text and "555-0100" not in text
     assert f"<{iri.labeler('123456789')}>" in text and "ex:Labeler" in text
     assert "ex:StorageCondition" in text and "ex:hasStorageCondition" in text
     assert 'ex:sourceDataset "device/udi"' in text
