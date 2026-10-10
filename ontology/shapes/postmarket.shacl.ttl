@@ -12,8 +12,11 @@
 # ---------------------------------------------------------------------------
 :RecallRecordShape a sh:NodeShape ;
     sh:targetClass ex:RecallRecord ;
-    sh:property [ sh:path ex:recallNumber ; sh:minCount 1 ; sh:maxCount 1 ;
-                  sh:message "RecallRecord must have exactly one ex:recallNumber." ] ;
+    sh:property [ sh:path ex:recallNumber ; sh:maxCount 1 ;
+                  sh:message "RecallRecord has more than one ex:recallNumber." ] ;
+    # a recall number is required unless FDA has not assigned one yet (flagged explicitly)
+    sh:or ( [ sh:path ex:recallNumber ; sh:minCount 1 ]
+            [ sh:path ex:recallNumberStatus ; sh:minCount 1 ] ) ;
     sh:property [ sh:path ex:recallInitiationDate ; sh:datatype xsd:date ;
                   sh:message "recallInitiationDate is not xsd:date (D4)." ] ;
     sh:property [ sh:path ex:reportDate ; sh:datatype xsd:date ;
