@@ -103,6 +103,14 @@ def int_lit(value):
         return None
 
 
+def gyear_lit(value):
+    """A calendar year as xsd:gYear ("2024"^^xsd:gYear), or None if not 4 digits."""
+    if value is None:
+        return None
+    s = str(value).strip()[:4]
+    return f'"{s}"^^xsd:gYear' if len(s) == 4 and s.isdigit() else None
+
+
 def float_lit(value):
     """Decimal measurement (storage temperature, quantities). xsd:decimal."""
     if value is None or str(value).strip() == "":
