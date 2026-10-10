@@ -17,6 +17,14 @@ on:
         type: boolean
         default: false
 
+# Every step below pipes its output into `tee` for the diagnostics bundle.
+# The default shell on GitHub runners is `bash -e`, which has no pipefail, so
+# a failing command piped into `tee` was reported as success. Naming the shell
+# makes GitHub run `bash -eo pipefail`, and a failing check now fails the job.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   # ---- Fast checks: run on every PR and push. No FDA data needed. ----
   checks:
@@ -28,15 +36,26 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Python self-tests (iri / common / distribution_parser)
+      - name: Install Python packages for the gates
+        run: python3 -m pip install --quiet "rdflib>=7,<8"
+
+      # Runs every module under pipeline/ and pipeline/sources/ that defines a
+      # self-test, so a new source module is covered without editing this file.
+      - name: Python self-tests (every pipeline module)
         run: |
           mkdir -p _diag
+          mods=$(grep -l "^def _selftest" pipeline/*.py pipeline/sources/*.py | sort)
+          echo "modules with a self-test: $(echo "$mods" | wc -l)" | tee -a _diag/selftests.log
           rc=0
-          for f in pipeline/iri.py pipeline/common.py pipeline/distribution_parser.py; do
+          for f in $mods; do
             echo "== $f ==" | tee -a _diag/selftests.log
-            python3 "$f" 2>&1 | tee -a _diag/selftests.log || rc=1
+            python3 "$f" 2>&1 | tee -a _diag/selftests.log || { echo "FAILED: $f" | tee -a _diag/selftests.log; rc=1; }
           done
           exit $rc
+
+      # Every ex: term a converter can emit must be declared in ontology.ttl.
+      - name: Vocabulary gate (vocab_check)
+        run: python3 scripts/vocab_check.py 2>&1 | tee _diag/vocab-check.log
 
       - uses: actions/setup-java@v4
         with:
