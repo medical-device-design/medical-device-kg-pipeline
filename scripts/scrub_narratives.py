@@ -35,13 +35,21 @@ def mask(s):
     return re.sub(r"\d", "#", s)
 
 
-def run(src, dst, report=None, examples=25):
+def _scrub_range(args):
+    """Worker: scrub bytes [start, end) of src (both on block boundaries) into dst."""
+    src, dst, start, end, examples = args
     opener = gzip.open if str(dst).endswith(".gz") else open
     hits, n_lit, n_changed = collections.Counter(), 0, 0
-    sample, rnd = [], random.Random(7)
-    with open(src, encoding="utf-8", errors="strict") as fi, \
+    sample, rnd = [], random.Random(start)
+    with open(src, "rb") as fb, \
             opener(dst, "wt", encoding="utf-8", **({"compresslevel": 3} if opener is gzip.open else {})) as fo:
-        for ln in fi:
+        fb.seek(start)
+        pos = start
+        for raw_ln in fb:
+            if pos >= end:
+                break
+            pos += len(raw_ln)
+            ln = raw_ln.decode("utf-8")
             m = LINE.match(ln.rstrip("\n"))
             if not m:
                 fo.write(ln)
@@ -59,6 +67,52 @@ def run(src, dst, report=None, examples=25):
                 fo.write(f"{m.group(1)}{common.lit(clean)}{m.group(3)}\n")
             else:
                 fo.write(ln)
+    return n_lit, n_changed, hits, sample
+
+
+def _boundaries(src, n):
+    """Split points at the start of a line that follows a blank line (block start)."""
+    size = Path(src).stat().st_size
+    cuts = [0]
+    with open(src, "rb") as fb:
+        for k in range(1, n):
+            fb.seek(size * k // n)
+            fb.readline()
+            while True:
+                ln = fb.readline()
+                if not ln or ln.strip() == b"":
+                    break
+            cuts.append(fb.tell())
+    cuts.append(size)
+    return sorted(set(cuts))
+
+
+def run(src, dst, report=None, examples=25, workers=1):
+    from concurrent.futures import ProcessPoolExecutor
+    cuts = _boundaries(src, max(1, workers))
+    gz = str(dst).endswith(".gz")
+    parts = [f"{dst}.part{i:02d}" + (".gz" if gz else "") for i in range(len(cuts) - 1)]
+    jobs = [(src, p, a, b, examples) for p, a, b in zip(parts, cuts, cuts[1:])]
+    if len(jobs) == 1:
+        results = [_scrub_range(jobs[0])]
+    else:
+        with ProcessPoolExecutor(len(jobs)) as ex:
+            results = list(ex.map(_scrub_range, jobs))
+    with open(dst, "wb") as out:                 # gzip members / text parts concatenate validly
+        for p in parts:
+            with open(p, "rb") as fp:
+                while True:
+                    buf = fp.read(1 << 24)
+                    if not buf:
+                        break
+                    out.write(buf)
+            Path(p).unlink()                      # our own scratch part
+    hits, n_lit, n_changed, sample = collections.Counter(), 0, 0, []
+    for nl, nc, h, s in results:
+        n_lit += nl
+        n_changed += nc
+        hits.update(h)
+        sample += s[: max(1, examples // len(results))]
     lines = [f"# Narrative scrub report", "", f"- narrative literals: {n_lit:,}",
              f"- literals changed: {n_changed:,} ({100 * n_changed / max(n_lit, 1):.3f}%)",
              "- removals by rule: " + ", ".join(f"{k} {v:,}" for k, v in hits.most_common()), "",
@@ -74,9 +128,10 @@ def run(src, dst, report=None, examples=25):
 
 if __name__ == "__main__":
     a = sys.argv[1:]
-    rep = None
-    if "--report" in a:
-        i = a.index("--report")
-        rep = a[i + 1]
-        del a[i:i + 2]
-    run(a[0], a[1], rep)
+    opts = {}
+    for flag in ("--report", "--workers"):
+        if flag in a:
+            i = a.index(flag)
+            opts[flag] = a[i + 1]
+            del a[i:i + 2]
+    run(a[0], a[1], opts.get("--report"), workers=int(opts.get("--workers", 1)))

@@ -30,20 +30,31 @@ import re
 _DATE = r"(?:\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{1,2}-\d{1,2}|\d{4}|" \
         r"(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\.?\s+\d{1,2},?\s+\d{2,4}|#{2,}[/#-]*)"
 RULES = [
-    ("email", re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", re.I), lambda m: "[EMAIL REMOVED]"),
-    ("ssn", re.compile(r"(?<![\d-])\d{3}-\d{2}-\d{4}(?![\d-])"), lambda m: "[ID REMOVED]"),
+    # domain labels must contain a letter and end in a letter TLD ("5V@0.5MS" is a pacing threshold)
+    ("email", re.compile(r"[\w.+-]+@(?:[\w-]*[A-Za-z][\w-]*\.)+[A-Za-z]{2,}\b"), lambda m: "[EMAIL REMOVED]"),
+    # SSN only when labelled: unlabelled ddd-dd-dddd in MAUDE are part / REF numbers
+    ("ssn", re.compile(r"\b(SSN|SOCIAL\s+SECURITY(?:\s+(?:NUMBER|NO\.?|#))?)(\W{0,4})\d{3}-\d{2}-\d{4}\b", re.I),
+     lambda m: f"{m.group(1)}{m.group(2) or ' '}[ID REMOVED]"),
+    # (ddd) ddd-dddd, or ddd-ddd-dddd / ddd.ddd.dddd with the SAME separator twice
+    # (rejects journal citations such as "12(3):456-789 2020")
     ("phone", re.compile(
-        r"(?<![\w-])(?:\+?1[-. ]?)?(?:\(\d{3}\)\s?|\b\d{3}[-. ])\d{3}[-. ]\d{4}\b(?:\s*(?:EXT|X)\.?\s*\d{1,5})?", re.I),
+        r"(?<![\w-])(?:\+?1[-. ]?)?(?:\(\d{3}\)\s?\d{3}[-.]\d{4}|\b\d{3}([-.])\d{3}\1\d{4})\b"
+        r"(?:\s*(?:EXT|X)\.?\s*\d{1,5})?", re.I),
      lambda m: "[PHONE REMOVED]"),
     ("dob", re.compile(r"\b(D\.?O\.?B\.?|DATE\s+OF\s+BIRTH|BIRTH\s*DATE)(\s*(?:IS|OF|WAS)?\s*[:#-]?\s*)" + _DATE, re.I),
      lambda m: f"{m.group(1)}{m.group(2) or ' '}[DOB REMOVED]"),
     ("record_id", re.compile(
         r"\b(MRN|MR|MEDICAL\s+RECORD(?:\s+(?:NUMBER|NO\.?|#))?|PT\.?\s+ID|PATIENT\s+(?:ID|#|NUMBER)|"
-        r"ACCOUNT\s+(?:NUMBER|NO\.?|#))(\s*[:#]?\s*)"
+        r"ACCOUNT\s+(?:NUMBER|NO\.?|#))(\s*[:#]\s*|\s+)"
+        r"(?!\d{7,10}-\d{4}-\d{5})"          # an MDR report number (public), not a medical record
         r"(?:(?=[A-Z0-9-]*\d)[A-Z0-9-]{4,}|\d{1,3}\s+\d{3,})(?:\s+\d{3,})*\b", re.I),
      lambda m: f"{m.group(1)}{m.group(2) or ' '}[ID REMOVED]"),
+    # a name only when it is followed by the contact detail itself (phone or e-mail):
+    # "CONTACT JANE DOE AT 555-..." -- in upper-case MAUDE text a bare "CONTACT X AT"
+    # is usually ordinary prose ("CONTACT WITH CUSTOMER AT THIS TIME")
     ("contact_name", re.compile(
-        r"\b(CONTACT|CALL|REACH)\s+((?:(?:DR|MR|MS|MRS)\.?\s+)?[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2})\s+(AT|ON|VIA)\b"),
+        r"\b(CONTACT|CALL|REACH)\s+((?:(?:DR|MR|MS|MRS)\.?\s+)?[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,2})"
+        r"\s+(AT|ON|VIA)\b(?=\s*:?\s*(?:\[PHONE REMOVED\]|\[EMAIL REMOVED\]))"),
      lambda m: f"{m.group(1)} [NAME REMOVED] {m.group(3)}"),
 ]
 _DEVICE_LABEL = re.compile(r"\b(LOT|REF|CAT|CATALOG|PART|P/N|PN|MODEL|SN|S/N|SERIAL|UDI|DI)\b\W{0,4}$", re.I)
@@ -77,6 +88,8 @@ def _selftest():
         ("QUESTIONS, PLEASE CONTACT ME DIRECTLY AT: (555) 123-4567.",
          "QUESTIONS, PLEASE CONTACT ME DIRECTLY AT: [PHONE REMOVED]."),
         ("EMAIL jdoe@example.org FOR INFO", "EMAIL [EMAIL REMOVED] FOR INFO"),
+        ("PATIENT SSN: 123-45-6789", "PATIENT SSN: [ID REMOVED]"),
+        ("I CALLED THE COMPANY AT 555.123.4567 EXT 22", "I CALLED THE COMPANY AT [PHONE REMOVED]"),
         ("PT ID 4 123456, DOB 5/12/60, FEMALE", "PT ID [ID REMOVED], DOB [DOB REMOVED], FEMALE"),
         ("EAB, MR 1234567, DOB 1-02-1950, FEMALE", "EAB, MR [ID REMOVED], DOB [DOB REMOVED], FEMALE"),
     ]
@@ -86,7 +99,13 @@ def _selftest():
     # device facts must survive
     keep = ["LOT 123-456-7890 WAS RECALLED", "REF 555-123-4567", "MODEL 100-200-3000 PUMP",
             "PATIENT WEIGHT, AGE AND DATE OF BIRTH NOT PROVIDED", "THE PATIENT'S WEIGHT AND DATE OF BIRTH. THE PATIENT",
-            "CALL THE MANUFACTURER AT ONCE", "MR SCAN AT 1.5T", "MR 3T SCANNER", "PATIENT # 2 OF 3", "K123456 CLEARED 2019", "UDI 00812345678901"]
+            "CALL THE MANUFACTURER AT ONCE", "MR SCAN AT 1.5T", "MR 3T SCANNER", "PATIENT # 2 OF 3",
+            "UNABLE TO ESTABLISH CONTACT WITH CUSTOMER AT THIS TIME", "HAD TO CONTACT HER HUSBAND VIA INTERCOM",
+            "A CONTACT INITIATED ON (B)(6) 2020", "PRODUCT ID: MRASC1234 SN: (B)(6)", "THE MR850V HUMIDIFIER",
+            "PART NUMBER 123-45-6789, LOT NUMBER 123456", "AJNR 41(3):456-789 2020", "FA ####-PD-MR-123",
+            "CONTACT WAS MADE IN A FOLLOW-UP CALL BY TECH SUPPORT ON 01/02/2020. AT THAT TIME",
+            "THE CUSTOMER TO CONTACT TS ON 01/02/2020", "THRESHOLD IS 1V@0.5MS",
+            "PREVIOUSLY REPORTED UNDER MRN 3012345-2020-00001. NO FURTHER", "K123456 CLEARED 2019", "UDI 00812345678901"]
     for s in keep:
         got, hits = scrub_text(s)
         assert got == s, f"over-scrubbed: {s!r} -> {got!r} {dict(hits)}"
