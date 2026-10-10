@@ -172,9 +172,12 @@ def transform(src, out, retrieved_at=None):
                     continue
                 agency = str(ident.get("issuing_agency") or "unknown").strip()
                 node = iri.udi_identifier(agency, iid)
-                if node in seen["ident"]:
+                # ~6M identifiers: keep a hash, not the IRI string, so the dedup set
+                # stays ~300 MB on the 3.8 GB VM (same-process hash() is stable)
+                h = hash(node)
+                if h in seen["ident"]:
                     continue
-                seen["ident"].add(node)
+                seen["ident"].add(h)
                 w.block(node, [
                     ("a", "ex:UDIIdentifier"),
                     ("rdfs:label", common.lit(iid)),

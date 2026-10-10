@@ -182,6 +182,33 @@ def tplc(product_code_value):
     return _instance("tplc", slug(product_code_value))
 
 
+def tplc_device_problem(product_code_value, problem):
+    """One device-problem tally inside a TPLC aggregate (rebuilt from MAUDE).
+        tplc_device_problem('FRN', 'Battery Problem') -> .../id/tplc/frn/device-problem/battery_problem"""
+    return _instance("tplc", slug(product_code_value), "device-problem", slug(problem))
+
+
+def tplc_patient_problem(product_code_value, problem):
+    """One patient-problem tally inside a TPLC aggregate.
+        tplc_patient_problem('FRN', 'Burn') -> .../id/tplc/frn/patient-problem/burn"""
+    return _instance("tplc", slug(product_code_value), "patient-problem", slug(problem))
+
+
+def tplc_outcome(product_code_value, outcome):
+    """One patient-outcome tally (Death, Hospitalization, ...) inside a TPLC aggregate.
+        tplc_outcome('FRN', 'Hospitalization') -> .../id/tplc/frn/outcome/hospitalization"""
+    return _instance("tplc", slug(product_code_value), "outcome", slug(outcome))
+
+
+def tplc_year(product_code_value, year):
+    """Yearly MDR statistic inside a TPLC aggregate.
+        tplc_year('FRN', 2024) -> .../id/tplc/frn/year/2024"""
+    y = str(year).strip()
+    if not (len(y) == 4 and y.isdigit()):
+        raise ValueError(f"tplc_year() needs a 4-digit year, got {year!r}")
+    return _instance("tplc", slug(product_code_value), "year", y)
+
+
 def recall(number):
     """Recall record.  recall('94520') -> .../id/recall/94520"""
     return _instance("recall", slug(number))
@@ -336,6 +363,10 @@ def _selftest():
         cfr_part("880"):                     "cfr-part/880",
         consensus_standard("5-91"):          "consensus-standard/5_91",
         tplc("BRT"):                         "tplc/brt",
+        tplc_device_problem("FRN", "Battery Problem"): "tplc/frn/device-problem/battery_problem",
+        tplc_patient_problem("FRN", "Burn"): "tplc/frn/patient-problem/burn",
+        tplc_outcome("FRN", "Hospitalization"): "tplc/frn/outcome/hospitalization",
+        tplc_year("FRN", 2024):              "tplc/frn/year/2024",
         recall("94520"):                     "recall/94520",
         recall_event("98639"):               "recall-event/98639",
         firm_name("MEDTRONIC MINIMED"):      "firm-name/medtronic_minimed",
