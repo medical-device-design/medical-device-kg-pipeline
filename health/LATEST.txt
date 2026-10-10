@@ -1,0 +1,83 @@
+############################################################
+# medical-device-kg VM health  --  Layer 2
+# host: build-vm   user: <user>   date_utc: 2026-10-05T10:30:01Z
+# MDKG: /srv/medical-device-kg
+############################################################
+
+== 1. tooling ==
+   PASS java   openjdk version "21.0.12.1" 2026-08-18
+   PASS python Python 3.10.12
+   PASS riot   Apache Jena RIOT version 5.2.0
+   PASS git    git version 2.34.1
+   WARN s5cmd not found (needed to publish to lakeFS)
+   WARN docker present but not usable by <user> (expected: not in docker group)
+
+== 2. disk ==
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda3       197G   29G  160G  16% /
+   PASS disk 16% used on /srv/medical-device-kg
+   tree sizes:
+     1.8M	/srv/medical-device-kg/repo
+     37M	/srv/medical-device-kg/downloads
+     1.6G	/srv/medical-device-kg/out
+     40M	/srv/medical-device-kg/nstest
+
+== 3. repo (git) ==
+   PASS repo at /srv/medical-device-kg/repo  branch=main  head=14ab1c1
+   PASS up to date with origin/main
+   PASS working tree clean
+
+== 4. structure lint ==
+   PASS structure lint OK
+     == 1. no committed secrets ==
+        PASS
+     == 2. no committed data TTL (only ontology/*.ttl is allowed) ==
+        PASS
+     == 3. the lakeFS ontology snapshot must stay untracked ==
+        PASS
+     == 4. IRIs minted only in pipeline/iri.py ==
+        PASS -- every module mints IRIs through iri.py
+     == 5. required files present ==
+        PASS ontology/ontology.ttl
+        PASS pipeline/iri.py
+        PASS pipeline/common.py
+        PASS SHACL shapes present
+     
+     STRUCTURE LINT: OK
+
+== 5. graph data on disk (riot) ==
+   PASS out/: 4 file(s) valid, 4998208 triple(s)
+   PASS nstest/: 13 file(s) valid, 650428 triple(s)
+
+== 6. lakeFS reachability (read-only) ==
+   PASS reachable: https://repository.okn.us/ (HTTP 200)
+   WARN lakeFS creds not on this host (<credentials file>) -- publishing not set up here
+
+== 7. mdkg-check (outstanding items) ==
+     ===================================================================
+      Medical Device KG — structure check   2026-10-05 06:30   build-vm
+     ===================================================================
+     
+     [1] Shared area exists and is group-owned
+       ok /srv/medical-device-kg (group: mdkg)
+     
+     [2] Canonical code is a git clone under repo/
+       ok repo/ is a git clone (branch: main)
+     
+     [3] No project data stranded in home directories
+       ok no large data files stranded in home directories
+     
+     [4] GraphDB data is not stored under a personal home directory
+       ok no GraphDB data under a home directory
+     
+     [5] Credentials are not world-readable
+       ! <credentials file> not placed yet (lakeFS publishing will not work until it is)
+     
+     ===================================================================
+      1 item(s) need attention. See WORKFLOW.md.
+     ===================================================================
+
+############################################################
+# SUMMARY: PASS=12  WARN=3  FAIL=0
+# STATUS: WARN
+############################################################
