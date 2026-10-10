@@ -113,6 +113,10 @@ def transform(src, out, retrieved_at=None):
             # back so one ex:codeInfo literal holds the complete published list.
             code = " ".join(str(x).strip() for x in (r.get("code_info"), r.get("more_code_info")) if x and str(x).strip())
             pairs += common.capped_pairs("ex:codeInfo", code or None, CODE_INFO_CAP)
+            # barcode path: GS1 device identifiers FDA quotes in the lot text -> UDI identifier nodes
+            for di in common.gs1_dis(code):
+                pairs.append(("ex:quotedDeviceIdentifier", common.lit(di)))
+                pairs.append(("ex:mentionsDeviceIdentifier", f"<{iri.udi_identifier('GS1', di)}>"))
             # structured geography from the free-text field (task: distribution parser)
             pairs += distribution_pairs(r.get("distribution_pattern"))
 

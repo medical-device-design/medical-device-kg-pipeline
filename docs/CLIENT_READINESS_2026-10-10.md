@@ -113,6 +113,8 @@ Most UDI records with no premarket link are 510(k)-exempt devices.
 - 98,773 of those DIs (72%) are in the UDI layer;
 - 11,586 recalls can therefore be reached from a scanned barcode, with no product-code guesswork.
 
+Since then the build writes these as direct links (see §4, item 1).
+
 **MAUDE reports (26,136,873):**
 
 | | Reports | Share |
@@ -133,7 +135,10 @@ Most UDI records with no premarket link are 510(k)-exempt devices.
 
 **Gaps a client would notice, and the planned fix for each:**
 
-1. **Barcode → recall is text-based today.** The 136,602 device identifiers in recall code text are matched by pattern. Writing them as explicit links (recall → UDI identifier) at build time would make "scan a barcode, get its recalls" a one-hop query for 11,586 recalls.
+1. **Barcode → recall: fixed the same day.** Recalls now carry `ex:mentionsDeviceIdentifier`, a link to the same UDI identifier node the UDI layer uses, for every GS1 DI in their code text that has a valid check digit.
+   - 12,759 recalls quote 124,101 such DIs; 98,732 of them (79.6%) are in GUDID.
+   - 11,584 recalls now reach a UDI device in one hop.
+   - The check digit drops about 12,500 fourteen-digit strings that were lot or serial numbers, not DIs.
 2. **Firm names vary across FDA sources** (for example "Baxter Healthcare Corp." and "Baxter Healthcare Corporation"). Grouping by the normalized firm node resolves most of this. Divisions remain separate: "MEDLINE INDUSTRIES, LP - Northfield" is listed apart from "Medline Industries, LP". The FEI join gives the true manufacturer.
    - **One recall can hold the lot text twice** (enforcement and recall database, with different line breaks), so a lot lookup can return the same recall twice. Queries should use DISTINCT.
 3. **About 30% of recalls carry no 510(k)/PMA number.** They are mostly exempt Class I devices; these still join by product code and firm.

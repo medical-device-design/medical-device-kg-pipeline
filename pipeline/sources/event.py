@@ -47,6 +47,7 @@ for _p in (_SRC_DIR, _PIPELINE):
 import iri        # noqa: E402
 import common     # noqa: E402
 import base       # noqa: E402
+import scrub      # noqa: E402
 
 NAME = "event"
 DATASET = "device/event"
@@ -224,6 +225,7 @@ def record_blocks(r, retrieved_at=None):
         if not body:
             continue
         pred = _TEXT_PRED.get(str(t.get("text_type_code") or "").strip().lower(), "ex:mdrText")
+        body, _ = scrub.scrub_text(body)          # residual DOBs, record numbers, phones, contact names
         text_pairs.append((pred, common.lit(body)))
     return subject, uniq, text_pairs, hub
 
@@ -334,7 +336,8 @@ def _selftest():
                       "sequence_number_treatment": ["Surgery"], "patient_age": "54 YR", "patient_sex": "Female"}],
          "mdr_text": [{"text_type_code": "Description of Event or Problem",
                        "text": "Device overheated.\nPatient burned."},
-                      {"text_type_code": "Additional Manufacturer Narrative", "text": "Battery replaced."}],
+                      {"text_type_code": "Additional Manufacturer Narrative",
+                       "text": "Battery replaced. PT DOB 3/4/1950. CONTACT JANE DOE AT 555-123-4567."}],
          "device": [{"device_report_product_code": "DZE", "brand_name": "CardioX", "generic_name": "AED",
                      "model_number": "CX-9", "lot_number": "*", "catalog_number": "C1",
                      "udi_di": "00812345678901", "manufacturer_d_name": "ACME MEDICAL",
@@ -380,7 +383,9 @@ def _selftest():
     assert "54 YR" not in text and "Female" not in text                       # demographics excluded
     assert "Device overheated." not in text                                   # narratives in their own file
     assert 'ex:eventDescription "Device overheated.\\nPatient burned."' in narr
-    assert 'ex:manufacturerNarrative "Battery replaced."' in narr
+    assert ('ex:manufacturerNarrative "Battery replaced. PT DOB [DOB REMOVED]. '
+            'CONTACT [NAME REMOVED] AT [PHONE REMOVED]."') in narr                # narratives scrubbed
+    assert "3/4/1950" not in narr and "JANE DOE" not in narr
     assert "ex:sourceDataset \"device/event\"" in text
     a = local_name("https://download.open.fda.gov/device/event/2024q1/device-event-0001-of-0009.json.zip")
     b = local_name("https://download.open.fda.gov/device/event/2023q4/device-event-0001-of-0009.json.zip")

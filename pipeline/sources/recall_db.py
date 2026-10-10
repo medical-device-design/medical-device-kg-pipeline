@@ -111,6 +111,10 @@ def transform(src, out, retrieved_at=None):
             ]
             # code_info (lots/serials): kept in full unless CODE_INFO_CAP is set
             pairs += common.capped_pairs("ex:codeInfo", r.get("code_info"), CODE_INFO_CAP)
+            # barcode path: GS1 device identifiers FDA quotes in the lot text -> UDI identifier nodes
+            for di in common.gs1_dis(r.get("code_info")):
+                pairs.append(("ex:quotedDeviceIdentifier", common.lit(di)))
+                pairs.append(("ex:mentionsDeviceIdentifier", f"<{iri.udi_identifier('GS1', di)}>"))
             pairs += distribution_pairs(r.get("distribution_pattern"))
 
             ev = str(r.get("res_event_number") or "").strip()
@@ -189,7 +193,8 @@ def _selftest():
             "recall_status": "Terminated", "event_date_terminated": "2004-03-24",
             "res_event_number": "27549", "product_code": "IZL--", "k_numbers": ["K020436"],
             "product_description": "Sedecal SP-HF 4.0 Portable X-Ray System",
-            "code_info": "serial #PK10058", "firm_fei_number": "1000139935",
+            "code_info": "serial #PK10058; UDI-DI 10197344133253, lot 12345678901234",
+            "firm_fei_number": "1000139935",
             "recalling_firm": "Sedecal USA, Inc", "city": "Arlington Heights",
             "state": "IL", "postal_code": "60004-1551",
             "reason_for_recall": "Non-compliance with performance standard.",
@@ -207,6 +212,8 @@ def _selftest():
 
     assert st.records == 1 and st.skipped == 1, (st.records, st.skipped)
     assert f"<{iri.recall('Z-0001-04')}>" in text            # SAME node as enforcement
+    assert f"ex:mentionsDeviceIdentifier <{iri.udi_identifier('GS1', '10197344133253')}>" in text
+    assert 'ex:quotedDeviceIdentifier "10197344133253"' in text and "12345678901234\"" not in text.split("codeInfo")[0]
     assert f"<{iri.product_code('IZL')}>" in text              # "IZL--" cleaned
     assert 'ex:distributedToState "VT"' in text                 # full name parsed
     assert '"2004-03-24"^^xsd:date' in text                     # lifecycle typed

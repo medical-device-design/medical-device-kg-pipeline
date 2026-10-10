@@ -690,6 +690,11 @@ ex:dateEffectiveText      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:
 ex:dateText               a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "a date field as published, when it is not a valid date ('<field>: <value>')" .
 ex:analyteName            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "analyte name" .
 
+ex:quotedDeviceIdentifier a owl:DatatypeProperty ; rdfs:domain ex:RecallRecord ; rdfs:range xsd:string ;
+    rdfs:label "GS1 device identifier (GTIN-14, valid check digit) quoted in the recall's published code information" .
+ex:mentionsDeviceIdentifier a owl:ObjectProperty ; rdfs:domain ex:RecallRecord ; rdfs:range ex:UDIIdentifier ;
+    rdfs:label "recall names this device identifier" ;
+    rdfs:comment "Barcode path: UDIIdentifier <- mentionsDeviceIdentifier - RecallRecord. The identifier node is minted by iri.udi_identifier('GS1', DI), the same IRI the UDI layer uses, so it joins when GUDID lists that DI." .
 ex:deviceRegulationPart   a owl:DatatypeProperty ; rdfs:domain ex:CfrPart ; rdfs:range xsd:boolean ;
     rdfs:label "part is a device or radiological-health part of 21 CFR (800-898, 1000-1050)" .
 
