@@ -47,4 +47,6 @@ mkdir -p $MON/snapshots/$D
 for f in recalls recall_db recall_class; do gzip -c $OUT/$f.ttl > $MON/snapshots/$D/$f.ttl.gz; done
 # keep 12 weekly snapshots
 ls -1d $MON/snapshots/*/ 2>/dev/null | sort | head -n -12 | xargs -r rm -rf
+# copy the text reports to the vm-reports branch on GitHub (no-op without the monitor key)
+bash $WT/scripts/publish_vm_reports.sh
 echo "== recall weekly end $(date -Is)"
