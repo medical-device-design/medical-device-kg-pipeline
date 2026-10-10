@@ -690,6 +690,9 @@ ex:dateEffectiveText      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:
 ex:dateText               a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "a date field as published, when it is not a valid date ('<field>: <value>')" .
 ex:analyteName            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "analyte name" .
 
+ex:deviceRegulationPart   a owl:DatatypeProperty ; rdfs:domain ex:CfrPart ; rdfs:range xsd:boolean ;
+    rdfs:label "part is a device or radiological-health part of 21 CFR (800-898, 1000-1050)" .
+
 # registration & listing additions (registrationlisting.py address fix, 2026-10-10)
 ex:registrationExpiryYear a owl:DatatypeProperty ; rdfs:domain ex:RegistrationListingRecord ; rdfs:range xsd:string ; rdfs:label "registration expiry year as published" .
 ex:ownerOperatorNumber    a owl:DatatypeProperty ; rdfs:domain ex:RegistrationListingRecord ; rdfs:range xsd:string ; rdfs:label "owner/operator number" .
