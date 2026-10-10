@@ -23,10 +23,13 @@ for _p in (_SRC_DIR, _PIPELINE):
 import iri        # noqa: E402
 import common     # noqa: E402
 import base       # noqa: E402
+from distribution_parser import distribution_pairs   # noqa: E402
+from identity import normalize_org                    # noqa: E402
 
 NAME = "recalls"
 DATASET = "device/enforcement"
 DOWNLOAD_INDEX = "https://api.fda.gov/download.json"
+CODE_INFO_CAP = None      # keep the full lot/serial text (PI decision 2026-10-09: no data loss)
 SOURCE_URL = "https://open.fda.gov/apis/device/enforcement/"
 
 
@@ -42,18 +45,8 @@ def fetch(dest):
 
 
 def _iter_records(src):
-    src = Path(src)
-    paths = sorted(set(src.glob("*.json")) | set(src.glob("*.zip")) | set(src.glob("*.json.zip")))
-    for p in paths:
-        if p.name.endswith(".zip"):
-            with zipfile.ZipFile(p) as z:
-                for n in z.namelist():
-                    if n.endswith(".json"):
-                        for rec in json.loads(z.read(n)).get("results", []):
-                            yield rec
-        else:
-            for rec in json.loads(p.read_text(encoding="utf-8")).get("results", []):
-                yield rec
+    """Stream records one at a time (base.iter_openfda_results; ijson if installed)."""
+    yield from base.iter_openfda_results(src)
 
 
 def transform(src, out, retrieved_at=None):
@@ -66,6 +59,7 @@ def transform(src, out, retrieved_at=None):
 
     st = base.Stats(source=NAME)
     hub = {}
+    firms = {}          # normalized name -> first raw spelling seen
     with base.TurtleWriter(out) as w:
         for r in _iter_records(src):
             rn = str(r.get("recall_number") or "").strip()
@@ -78,15 +72,16 @@ def transform(src, out, retrieved_at=None):
                 ("a", "ex:RecallRecord"),
                 ("ex:recallNumber", common.lit(rn)),
                 ("ex:recallClassification", common.lit(r.get("classification"))),
-                ("ex:status", common.lit(r.get("status"))),
+                ("ex:recallStatus", common.lit(r.get("status"))),   # ontology term (was ex:status)
                 ("ex:reasonForRecall", common.lit(r.get("reason_for_recall"))),
                 ("ex:recallingFirm", common.lit(r.get("recalling_firm"))),
                 ("ex:productDescription", common.lit(r.get("product_description"))),
                 ("ex:recallInitiationDate", common.date_lit(r.get("recall_initiation_date"))),
                 ("ex:reportDate", common.date_lit(r.get("report_date"))),
+                ("ex:centerClassificationDate", common.date_lit(r.get("center_classification_date"))),
+                ("ex:terminationDate", common.date_lit(r.get("termination_date"))),
                 ("ex:voluntaryMandated", common.lit(r.get("voluntary_mandated"))),
                 ("ex:initialFirmNotification", common.lit(r.get("initial_firm_notification"))),
-                ("ex:codeInfo", common.lit(r.get("code_info"))),
                 ("ex:productQuantity", common.lit(r.get("product_quantity"))),
                 ("ex:eventId", common.lit(r.get("event_id"))),
                 ("ex:distributionPattern", common.lit(r.get("distribution_pattern"))),
@@ -94,6 +89,22 @@ def transform(src, out, retrieved_at=None):
                 ("ex:state", common.lit(r.get("state"))),
                 ("ex:country", common.lit(r.get("country"))),
             ]
+
+            # code_info (lots/serials): kept in full unless CODE_INFO_CAP is set
+            pairs += common.capped_pairs("ex:codeInfo", r.get("code_info"), CODE_INFO_CAP)
+            # structured geography from the free-text field (task: distribution parser)
+            pairs += distribution_pairs(r.get("distribution_pattern"))
+
+            # recall event (groups product-level records into one FDA event)
+            if str(r.get("event_id") or "").strip():
+                pairs.append(("ex:partOfRecallEvent", f"<{iri.recall_event(r['event_id'])}>"))
+
+            # organization identity: name-keyed node; identity.py links it to
+            # FEI/DUNS-keyed nodes with scored ex:IdentityMapping (never sameAs)
+            nf = normalize_org(r.get("recalling_firm"))
+            if nf:
+                pairs.append(("ex:hasRecallingFirm", f"<{iri.firm_name(nf)}>"))
+                firms.setdefault(nf, r.get("recalling_firm"))
 
             # cross-source links (the joins no single FDA DB provides)
             for kn in common.as_list(of.get("k_number")):
@@ -130,6 +141,13 @@ def transform(src, out, retrieved_at=None):
             if d.get("regulation_number"):
                 block.append(("ex:hasRegulationNumber", f"<{iri.regulation(d['regulation_number'])}>"))
             w.block(iri.product_code(pc), block)
+
+        for nf in sorted(firms):
+            w.block(iri.firm_name(nf), [
+                ("a", "ex:FirmName"),
+                ("rdfs:label", common.lit(firms[nf])),
+                ("ex:normalizedName", common.lit(nf)),
+            ])
 
     st.triples = w.triples
     return st
@@ -170,6 +188,9 @@ def _selftest():
     assert f"<{iri.pma('P010001')}>" in text                  # cross-link to PMA
     assert f"<{iri.product_code('OYC')}>" in text and text.count("a ex:ProductCode") == 1
     assert "ex:sourceDataset \"device/enforcement\"" in text
+    assert 'ex:recallStatus "Ongoing"' in text and "ex:status " not in text
+    assert "ex:distributedNationwide" in text                 # parser folded in
+    assert f"<{iri.firm_name('MINIMED')}>" in text and "a ex:FirmName" in text
     print(f"recalls.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
 
