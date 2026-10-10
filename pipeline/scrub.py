@@ -27,21 +27,24 @@ Returns (clean_text, Counter of rule hits).
 import collections
 import re
 
-_DATE = r"(?:\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{1,2}-\d{1,2}|\d{4}|" \
-        r"(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\.?\s+\d{1,2},?\s+\d{2,4}|#{2,}[/#-]*)"
+_MON = r"(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\.?"
+_DATE = r"(?:\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{4}-\d{1,2}-\d{1,2}|" \
+        r"\d{1,2}\s*[/-]?\s*" + _MON + r"\s*[/-]?\s*\d{2,4}|" + _MON + r"\s+\d{1,2},?\s+\d{2,4}|" \
+        r"\d{1,2}/\d{4}|\d{4}|#{2,}[/#-]*)"
 RULES = [
     # domain labels must contain a letter and end in a letter TLD ("5V@0.5MS" is a pacing threshold)
-    ("email", re.compile(r"[\w.+-]+@(?:[\w-]*[A-Za-z][\w-]*\.)+[A-Za-z]{2,}\b"), lambda m: "[EMAIL REMOVED]"),
+    ("email", re.compile(r"[\w.+-]+@(?:[\w-]+\.)+[A-Za-z]{2,}(?![A-Za-z])"), lambda m: "[EMAIL REMOVED]"),
     # SSN only when labelled: unlabelled ddd-dd-dddd in MAUDE are part / REF numbers
     ("ssn", re.compile(r"\b(SSN|SOCIAL\s+SECURITY(?:\s+(?:NUMBER|NO\.?|#))?)(\W{0,4})\d{3}-\d{2}-\d{4}\b", re.I),
      lambda m: f"{m.group(1)}{m.group(2) or ' '}[ID REMOVED]"),
     # (ddd) ddd-dddd, or ddd-ddd-dddd / ddd.ddd.dddd with the SAME separator twice
     # (rejects journal citations such as "12(3):456-789 2020")
     ("phone", re.compile(
-        r"(?<![\w-])(?:\+?1[-. ]?)?(?:\(\d{3}\)\s?\d{3}[-.]\d{4}|\b\d{3}([-.])\d{3}\1\d{4})\b"
+        r"(?<![\w:-])(?:\+?1[-. ]?)?(?:\(\d{3}\)\s?\d{3}[-. ]\d{4}|\b\d{3}([-. ])\d{3}\1\d{4})\b"
         r"(?:\s*(?:EXT|X)\.?\s*\d{1,5})?", re.I),
      lambda m: "[PHONE REMOVED]"),
-    ("dob", re.compile(r"\b(D\.?O\.?B\.?|DATE\s+OF\s+BIRTH|BIRTH\s*DATE)(\s*(?:IS|OF|WAS)?\s*[:#-]?\s*)" + _DATE, re.I),
+    ("dob", re.compile(r"\b(D\.?O\.?B\.?|DATE\s+OF\s+BIRTH|BIRTH\s*DATE)(\s*(?:IS|OF|WAS)?\s*[^\w\s]{0,2}\s*)" + _DATE
+                       + r"(?![\d.]*\s*(?:\+/-|±))", re.I),
      lambda m: f"{m.group(1)}{m.group(2) or ' '}[DOB REMOVED]"),
     ("record_id", re.compile(
         r"\b(MRN|MR|MEDICAL\s+RECORD(?:\s+(?:NUMBER|NO\.?|#))?|PT\.?\s+ID|PATIENT\s+(?:ID|#|NUMBER)|"
@@ -90,6 +93,15 @@ def _selftest():
         ("EMAIL jdoe@example.org FOR INFO", "EMAIL [EMAIL REMOVED] FOR INFO"),
         ("PATIENT SSN: 123-45-6789", "PATIENT SSN: [ID REMOVED]"),
         ("I CALLED THE COMPANY AT 555.123.4567 EXT 22", "I CALLED THE COMPANY AT [PHONE REMOVED]"),
+        ("THE FACILITY CONTACTED DAN AT 1 800 555 1234 AND", "THE FACILITY CONTACTED DAN AT [PHONE REMOVED] AND"),
+        ("CONSUMER'S DATE OF BIRTH (04/1950) AND THE LOT", "CONSUMER'S DATE OF BIRTH ([DOB REMOVED]) AND THE LOT"),
+        ("CHINA. WANGYU@163.COM. [ZHONGHUA", "CHINA. [EMAIL REMOVED]. [ZHONGHUA"),
+        ("FEMALE, AGE 41, DOB: 4 SEPT 1975. WHAT", "FEMALE, AGE 41, DOB: [DOB REMOVED]. WHAT"),
+        ("DATE OF BIRTH: 12APR1980 (PER MR", "DATE OF BIRTH: [DOB REMOVED] (PER MR"),
+        ("FEMALE, DATE OF BIRTH 03/DEC/1950. THE LEAD", "FEMALE, DATE OF BIRTH [DOB REMOVED]. THE LEAD"),
+        ("A1: DOB ¿ 1960; G1: FOREIGN", "A1: DOB ¿ [DOB REMOVED]; G1: FOREIGN"),
+        ("PHONE: (775) 555 1234, EXT. 12", "PHONE: [PHONE REMOVED], EXT. 12"),
+        ("ADDRESS: PAM.MEADOWS@CONVATEC.COM1234 NATIONAL", "ADDRESS: [EMAIL REMOVED]1234 NATIONAL"),
         ("PT ID 4 123456, DOB 5/12/60, FEMALE", "PT ID [ID REMOVED], DOB [DOB REMOVED], FEMALE"),
         ("EAB, MR 1234567, DOB 1-02-1950, FEMALE", "EAB, MR [ID REMOVED], DOB [DOB REMOVED], FEMALE"),
     ]
@@ -105,7 +117,9 @@ def _selftest():
             "PART NUMBER 123-45-6789, LOT NUMBER 123456", "AJNR 41(3):456-789 2020", "FA ####-PD-MR-123",
             "CONTACT WAS MADE IN A FOLLOW-UP CALL BY TECH SUPPORT ON 01/02/2020. AT THAT TIME",
             "THE CUSTOMER TO CONTACT TS ON 01/02/2020", "THRESHOLD IS 1V@0.5MS",
-            "PREVIOUSLY REPORTED UNDER MRN 3012345-2020-00001. NO FURTHER", "K123456 CLEARED 2019", "UDI 00812345678901"]
+            "PREVIOUSLY REPORTED UNDER MRN 3012345-2020-00001. NO FURTHER",
+            "ANN VASC SURG 2015; 29:123-456 2015. SEE PAGES", "FAIL CODE 123:45, 123-456-789-0123; FACTORY",
+            "AGE/DATE OF BIRTH: 62.5 +/- 10.2 YEARS. SEX", "AGE/DATE OF BIRTH: 12 YRS. SECTION D4", "K123456 CLEARED 2019", "UDI 00812345678901"]
     for s in keep:
         got, hits = scrub_text(s)
         assert got == s, f"over-scrubbed: {s!r} -> {got!r} {dict(hits)}"

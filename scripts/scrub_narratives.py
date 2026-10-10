@@ -31,6 +31,13 @@ def unescape(s):
     return _UNESC.sub(lambda m: _MAP[m.group(1)], s)
 
 
+# deliberately LOOSE detectors run on the scrubbed text: they over-match (citations,
+# report numbers) so a human can review what is left; they are not removal rules
+RESIDUAL = {"dob": re.compile(r"\b(DOB|DATE OF BIRTH)\b\W{0,6}\d", re.I),
+            "phone": re.compile(r"\(?\b\d{3}\)?[-. ]\d{3}[-. ]\d{4}\b"),
+            "email": re.compile(r"[\w.+-]+@[\w-]+\.[a-z]{2,}", re.I)}
+
+
 def mask(s):
     return re.sub(r"\d", "#", s)
 
@@ -40,7 +47,7 @@ def _scrub_range(args):
     src, dst, start, end, examples = args
     opener = gzip.open if str(dst).endswith(".gz") else open
     hits, n_lit, n_changed = collections.Counter(), 0, 0
-    sample, rnd = [], random.Random(start)
+    sample, rnd, resid = [], random.Random(start), []
     with open(src, "rb") as fb, \
             opener(dst, "wt", encoding="utf-8", **({"compresslevel": 3} if opener is gzip.open else {})) as fo:
         fb.seek(start)
@@ -57,6 +64,12 @@ def _scrub_range(args):
             n_lit += 1
             raw = unescape(m.group(2))
             clean, h = scrub.scrub_text(raw)
+            for k, rx in RESIDUAL.items():
+                r = rx.search(clean)
+                if r:
+                    hits["residual_" + k] += 1
+                    if len(resid) < 30:
+                        resid.append(f"{k}: " + mask(clean[max(0, r.start() - 60):r.end() + 30]))
             if h:
                 n_changed += 1
                 hits.update(h)
@@ -67,7 +80,7 @@ def _scrub_range(args):
                 fo.write(f"{m.group(1)}{common.lit(clean)}{m.group(3)}\n")
             else:
                 fo.write(ln)
-    return n_lit, n_changed, hits, sample
+    return n_lit, n_changed, hits, sample, resid
 
 
 def _boundaries(src, n):
@@ -107,16 +120,22 @@ def run(src, dst, report=None, examples=25, workers=1):
                         break
                     out.write(buf)
             Path(p).unlink()                      # our own scratch part
-    hits, n_lit, n_changed, sample = collections.Counter(), 0, 0, []
-    for nl, nc, h, s in results:
+    hits, n_lit, n_changed, sample, resid = collections.Counter(), 0, 0, [], []
+    for nl, nc, h, s, r in results:
         n_lit += nl
         n_changed += nc
         hits.update(h)
         sample += s[: max(1, examples // len(results))]
+        resid += r[:12]
+    removals = {k: v for k, v in hits.items() if not k.startswith("residual_")}
+    residual = {k[9:]: v for k, v in hits.items() if k.startswith("residual_")}
     lines = [f"# Narrative scrub report", "", f"- narrative literals: {n_lit:,}",
              f"- literals changed: {n_changed:,} ({100 * n_changed / max(n_lit, 1):.3f}%)",
-             "- removals by rule: " + ", ".join(f"{k} {v:,}" for k, v in hits.most_common()), "",
-             "## Examples (digits masked, trimmed to 300 characters)", ""]
+             "- removals by rule: " + ", ".join(f"{k} {v:,}" for k, v in sorted(removals.items(), key=lambda x: -x[1])),
+             "- residual (loose detectors on the scrubbed text, for review): "
+             + (", ".join(f"{k} {v:,}" for k, v in residual.items()) or "none"), "",
+             "## Residual examples (digits masked)", ""] + [f"- {x}" for x in resid] + [
+             "", "## Examples (digits masked, trimmed to 300 characters)", ""]
     for raw, clean in sample:
         lines += [f"- before: {mask(raw)[:300]}", f"  after:  {mask(clean)[:300]}", ""]
     text = "\n".join(lines) + "\n"
