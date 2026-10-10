@@ -44,7 +44,7 @@ if [ -n "$LATEST" ]; then
   [ -f "$MON/history.csv" ] && cp "$MON/history.csv" recalls/history.csv
 fi
 if [ -f "$HEALTH" ]; then
-  mkdir -p health && cp "$HEALTH" health/LATEST.txt
+  mkdir -p health && sed 's/\x1b\[[0-9;]*m//g' "$HEALTH" > health/LATEST.txt   # strip terminal colours
 fi
 cat > README.md <<'EOF'
 # vm-reports
