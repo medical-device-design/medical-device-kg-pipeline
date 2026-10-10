@@ -137,8 +137,12 @@ def de_novo(number):
     return _instance("de-novo", slug(number))
 
 
-def hde(number):
-    """Humanitarian Device Exemption.  hde('H100001') -> .../id/hde/h100001"""
+def hde(number, supplement=None):
+    """Humanitarian Device Exemption, optionally one supplement (nested like PMA).
+        hde('H100001')          -> .../id/hde/h100001
+        hde('H100001', 'S014')  -> .../id/hde/h100001/supplement/s014"""
+    if supplement:
+        return _instance("hde", slug(number), "supplement", slug(supplement))
     return _instance("hde", slug(number))
 
 
@@ -178,9 +182,44 @@ def tplc(product_code_value):
     return _instance("tplc", slug(product_code_value))
 
 
+def tplc_device_problem(product_code_value, problem):
+    """One device-problem tally inside a TPLC aggregate (rebuilt from MAUDE).
+        tplc_device_problem('FRN', 'Battery Problem') -> .../id/tplc/frn/device-problem/battery_problem"""
+    return _instance("tplc", slug(product_code_value), "device-problem", slug(problem))
+
+
+def tplc_patient_problem(product_code_value, problem):
+    """One patient-problem tally inside a TPLC aggregate.
+        tplc_patient_problem('FRN', 'Burn') -> .../id/tplc/frn/patient-problem/burn"""
+    return _instance("tplc", slug(product_code_value), "patient-problem", slug(problem))
+
+
+def tplc_outcome(product_code_value, outcome):
+    """One patient-outcome tally (Death, Hospitalization, ...) inside a TPLC aggregate.
+        tplc_outcome('FRN', 'Hospitalization') -> .../id/tplc/frn/outcome/hospitalization"""
+    return _instance("tplc", slug(product_code_value), "outcome", slug(outcome))
+
+
+def tplc_year(product_code_value, year):
+    """Yearly MDR statistic inside a TPLC aggregate.
+        tplc_year('FRN', 2024) -> .../id/tplc/frn/year/2024"""
+    y = str(year).strip()
+    if not (len(y) == 4 and y.isdigit()):
+        raise ValueError(f"tplc_year() needs a 4-digit year, got {year!r}")
+    return _instance("tplc", slug(product_code_value), "year", y)
+
+
 def recall(number):
     """Recall record.  recall('94520') -> .../id/recall/94520"""
     return _instance("recall", slug(number))
+
+
+def recall_event(event_number):
+    """A recall EVENT (FDA res_event_number / event_id), which groups one or more
+    product-level recall records. Counting events vs products is the difference
+    between "80 recall events" and "200 recalled products".
+        recall_event('98639') -> .../id/recall-event/98639"""
+    return _instance("recall-event", slug(event_number))
 
 
 def report(key):
@@ -269,6 +308,29 @@ def labeler(duns):
     return _instance("labeler", slug(duns))
 
 
+def identity_mapping(subject_iri, object_iri, method):
+    """A reified identity mapping between two organization nodes (e.g. a recall's
+    firm-name node and an FEI-keyed manufacturer). Keyed on a hash of the three
+    inputs so it is deterministic and order-sensitive. We NEVER assert owl:sameAs
+    on a scored match; the mapping node carries method + confidence instead.
+        identity_mapping(a, b, 'normalized-name') -> .../id/identity-mapping/<16 hex>"""
+    import hashlib
+    for v in (subject_iri, object_iri, method):
+        if not v or not str(v).strip():
+            raise ValueError("identity_mapping() needs subject, object and method")
+    key = hashlib.sha1(f"{subject_iri}|{object_iri}|{method}".encode("utf-8")).hexdigest()[:16]
+    return _instance("identity-mapping", key)
+
+
+def firm_name(name):
+    """An organization as NAMED in a source that gives no identifier (e.g. an
+    enforcement report's recalling_firm). Keyed on the normalized name so variants
+    like "Medtronic MiniMed, Inc." and "MEDTRONIC MINIMED INC" share one node.
+    Normalization lives in identity.normalize_org; pass the normalized form here.
+        firm_name('MEDTRONIC MINIMED') -> .../id/firm-name/medtronic_minimed"""
+    return _instance("firm-name", slug(name))
+
+
 def storage_condition(device_record_key, index):
     """A storage-condition node hanging off a UDI device.
         storage_condition('abc-1', 0) -> .../id/udi/abc-1/storage/0"""
@@ -294,13 +356,20 @@ def _selftest():
         pma("N10389", "S001"):               "pma/n10389/supplement/s001",
         de_novo("DEN160001"):                "de-novo/den160001",
         hde("H100001"):                      "hde/h100001",
+        hde("H100001", "S014"):              "hde/h100001/supplement/s014",
         classification("FRN"):               "classification/frn",
         regulation("880.5725"):              "regulation/880_5725",
         cfr_section("1000.1"):               "cfr-section/1000_1",
         cfr_part("880"):                     "cfr-part/880",
         consensus_standard("5-91"):          "consensus-standard/5_91",
         tplc("BRT"):                         "tplc/brt",
+        tplc_device_problem("FRN", "Battery Problem"): "tplc/frn/device-problem/battery_problem",
+        tplc_patient_problem("FRN", "Burn"): "tplc/frn/patient-problem/burn",
+        tplc_outcome("FRN", "Hospitalization"): "tplc/frn/outcome/hospitalization",
+        tplc_year("FRN", 2024):              "tplc/frn/year/2024",
         recall("94520"):                     "recall/94520",
+        recall_event("98639"):               "recall-event/98639",
+        firm_name("MEDTRONIC MINIMED"):      "firm-name/medtronic_minimed",
         report("MW5012345"):                 "report/MW5012345",
         postmarket_522("PS120001"):          "postmarket-522/ps120001",
         manufacturer(fei="3001234567"):      "manufacturer/3001234567",
@@ -319,6 +388,12 @@ def _selftest():
     }
     for got, want in cases.items():
         assert suffix(got) == want, f"MINT DRIFT: got {suffix(got)!r}, want {want!r}"
+
+    # identity mappings: deterministic, order-sensitive, under ID
+    m1 = identity_mapping(firm_name("ACME"), manufacturer(fei="1"), "shared-fei")
+    assert m1 == identity_mapping(firm_name("ACME"), manufacturer(fei="1"), "shared-fei")
+    assert m1 != identity_mapping(manufacturer(fei="1"), firm_name("ACME"), "shared-fei")
+    assert suffix(m1).startswith("identity-mapping/") and len(suffix(m1)) == len("identity-mapping/") + 16
 
     # vocabulary terms live under NS, not ID
     assert term("UDIDeviceRecord") == f"{NS}UDIDeviceRecord"

@@ -50,12 +50,44 @@ US_STATES = {
     "WI", "WY", "DC", "PR", "VI", "GU", "AS", "MP",
 }
 
+# Full names, because the device/recall database writes "Vermont" where the
+# enforcement feed writes "VT" (verified on api.fda.gov/device/recall, Oct 2026).
+STATE_NAMES = {
+    "ALABAMA": "AL", "ALASKA": "AK", "ARIZONA": "AZ", "ARKANSAS": "AR",
+    "CALIFORNIA": "CA", "COLORADO": "CO", "CONNECTICUT": "CT", "DELAWARE": "DE",
+    "FLORIDA": "FL", "GEORGIA": "GA", "HAWAII": "HI", "IDAHO": "ID",
+    "ILLINOIS": "IL", "INDIANA": "IN", "IOWA": "IA", "KANSAS": "KS",
+    "KENTUCKY": "KY", "LOUISIANA": "LA", "MAINE": "ME", "MARYLAND": "MD",
+    "MASSACHUSETTS": "MA", "MICHIGAN": "MI", "MINNESOTA": "MN", "MISSISSIPPI": "MS",
+    "MISSOURI": "MO", "MONTANA": "MT", "NEBRASKA": "NE", "NEVADA": "NV",
+    "NEW HAMPSHIRE": "NH", "NEW JERSEY": "NJ", "NEW MEXICO": "NM", "NEW YORK": "NY",
+    "NORTH CAROLINA": "NC", "NORTH DAKOTA": "ND", "OHIO": "OH", "OKLAHOMA": "OK",
+    "OREGON": "OR", "PENNSYLVANIA": "PA", "RHODE ISLAND": "RI",
+    "SOUTH CAROLINA": "SC", "SOUTH DAKOTA": "SD", "TENNESSEE": "TN", "TEXAS": "TX",
+    "UTAH": "UT", "VERMONT": "VT", "VIRGINIA": "VA", "WASHINGTON": "WA",
+    "WEST VIRGINIA": "WV", "WISCONSIN": "WI", "WYOMING": "WY",
+    "DISTRICT OF COLUMBIA": "DC", "PUERTO RICO": "PR", "GUAM": "GU",
+    "VIRGIN ISLANDS": "VI", "AMERICAN SAMOA": "AS", "NORTHERN MARIANA ISLANDS": "MP",
+}
+# longest names first so "WEST VIRGINIA" wins over "VIRGINIA", "NEW YORK" etc.
+_STATE_NAME_RE = re.compile(
+    r"\b(" + "|".join(sorted((re.escape(n) for n in STATE_NAMES), key=len, reverse=True)) + r")\b")
+# Two-letter codes that are also everyday words; accept them only in a code list
+# context (after "US:" or among other codes), never from prose.
+_AMBIGUOUS = {"IN", "OR", "ME", "OK", "HI", "DE", "PA", "MA", "AS", "ID", "OH"}
+
 _US_SECTION = re.compile(r"\bUS\s*:\s*(.*?)(?:\bOUS\s*:|$)", re.I | re.S)
 _OUS_SECTION = re.compile(r"\bOUS\s*:\s*(.*)$", re.I | re.S)
 _TWO_LETTER = re.compile(r"\b([A-Z]{2})\b")
 _NATIONWIDE = re.compile(r"nationwide", re.I)
 _NO_DIST = re.compile(r"\bno\s+distribution\b", re.I)
 _WORLDWIDE = re.compile(r"worldwide", re.I)
+_US_WHOLE = re.compile(r"\b(united states|us and us territories|u\.s\.a?\.?|usa)\b|^\s*US\b(?!\s*:)", re.I)
+_INTL = re.compile(r"international\s+distribution\s+(?:to|in)\s+the\s+(?:countr(?:y|ies)|states?)\s+of\s*:?\s*(.*)$",
+                   re.I | re.S)
+_STATE_OF = re.compile(r"\bstates?\s+of\b", re.I)          # "in the US state of MA" -> code-list context
+_COUNTRIES_OF = re.compile(r"\bcountr(?:y|ies)\s+of\s*:?\s*", re.I)
+_ROW = re.compile(r"\bROW\b|\brest of (?:the )?world\b", re.I)
 
 
 def parse_distribution(text):
@@ -81,7 +113,10 @@ def parse_distribution(text):
 
     # If there is no explicit "US:"/"OUS:" split, treat the whole string as US.
     m_us = _US_SECTION.search(s)
-    us_text = m_us.group(1) if m_us else (s if not re.search(r"\bOUS\s*:", s, re.I) else "")
+    m_ous_at = re.search(r"\bOUS\s*:", s, re.I)
+    # No "US:" label: the US part is everything before "OUS:" (or the whole text).
+    # (Fixes "US Nationwide distribution. OUS: Canada", which used to lose the US side.)
+    us_text = m_us.group(1) if m_us else (s[:m_ous_at.start()] if m_ous_at else s)
     m_ous = _OUS_SECTION.search(s)
     ous_text = m_ous.group(1) if m_ous else ""
 
@@ -89,11 +124,43 @@ def parse_distribution(text):
     if _NO_DIST.search(us_text):
         result["us_none"] = True
     else:
-        codes = [c for c in _TWO_LETTER.findall(us_text.upper()) if c in US_STATES]
+        up = us_text.upper()
+        # 1) full state names ("Vermont", "New York"); remove them so their
+        #    letters can't be re-read as codes ("NEW YORK" -> no stray "NE").
+        names = [STATE_NAMES[n] for n in _STATE_NAME_RE.findall(up)]
+        rest = _STATE_NAME_RE.sub(" ", up)
+        # Countries listed in the US part must not be read as state codes.
+        mc_us = _COUNTRIES_OF.search(rest)
+        if mc_us:
+            rest = rest[:mc_us.start()]
+        # "...in the US state(s) of MA" without a "US:" label: read codes only
+        # AFTER "state(s) of", so the prose word "in" is not taken as Indiana.
+        ms = _STATE_OF.search(rest)
+        if ms and not m_us:
+            rest = rest[ms.end():]
+        # 2) two-letter codes. Ambiguous ones ("IN", "OR", "ME"...) count only
+        #    when the text is a code list: "US:" prefix or >=2 unambiguous codes.
+        raw_codes = [c for c in _TWO_LETTER.findall(rest) if c in US_STATES]
+        firm = [c for c in raw_codes if c not in _AMBIGUOUS]
+        list_context = bool(m_us) or len(firm) >= 2 or bool(_STATE_OF.search(us_text))
+        codes = [c for c in raw_codes if c not in _AMBIGUOUS or list_context]
         # dedupe, keep sorted for determinism
-        result["us_states"] = sorted(set(codes))
+        result["us_states"] = sorted(set(codes) | set(names))
         if not result["us_states"] and _NATIONWIDE.search(us_text):
             result["us_nationwide"] = True
+
+    # Phrasings seen in the live device/recall sample (Oct 2026) that carry no
+    # "US:"/"OUS:" labels: "United States.", "US and US Territories.",
+    # "International distribution to the countries of Austria, Germany.", "Worldwide".
+    if not m_us and not m_ous_at:
+        if not result["us_states"] and _US_WHOLE.search(s) and not _INTL.search(s):
+            result["us_nationwide"] = True
+        mi = _INTL.search(s)
+        if mi:
+            result["us_states"] = []          # codes inside an international list are not US states
+            ous_text = mi.group(1)
+        elif _WORLDWIDE.search(s) or _ROW.search(s):
+            ous_text = "Worldwide"
 
     # --- OUS side ---
     if _WORLDWIDE.search(ous_text):
@@ -105,7 +172,38 @@ def parse_distribution(text):
         countries = [c.strip(" .").strip() for c in cleaned.split(",")]
         result["ous_countries"] = [c for c in countries if c and not c.isspace()]
 
+    # Unlabeled text that names countries after "countries of" (common in
+    # "Worldwide distribution - US Nationwide and the countries of A, B, C").
+    if not m_ous_at and not _INTL.search(s):
+        mc = _COUNTRIES_OF.search(s)
+        if mc:
+            tail = re.split(r"[.;]\s", s[mc.end():])[0]
+            tail = re.sub(r"\band\b", ",", tail, flags=re.I)
+            countries = [c.strip(" .").strip() for c in tail.split(",") if c.strip(" .").strip()]
+            keep = ["Worldwide"] if result["worldwide"] else []
+            result["ous_countries"] = keep + countries
+    # FDA text repeats countries ("KR, KR"); dedupe, keep first-seen order
+    result["ous_countries"] = list(dict.fromkeys(result["ous_countries"]))
     return result
+
+
+def distribution_pairs(text):
+    """(predicate, object) pairs for a source converter to append to its recall
+    block, so the structured geography lands on the same node in the same file.
+    Does NOT re-emit ex:distributionPattern (the converter already writes it)."""
+    p = parse_distribution(text)
+    pairs = [("ex:distributedToState", f'"{s}"') for s in p["us_states"]]
+    # common.lit escapes newlines too -- the hand-rolled escaping used here before
+    # let a "\n" inside a country name through and broke Turtle (found on .83,
+    # 2026-10-09: "Broken token (newline): CHILE" in recall_db.ttl)
+    import common
+    pairs += [("ex:distributedToCountry", common.lit(c)) for c in p["ous_countries"]]
+    pairs = [(k, v) for k, v in pairs if v is not None]
+    if p["us_nationwide"]:
+        pairs.append(("ex:distributedNationwide", '"true"^^xsd:boolean'))
+    if p["us_none"]:
+        pairs.append(("ex:distributedInUS", '"false"^^xsd:boolean'))
+    return pairs
 
 
 # --------------------------------------------------------------------------
@@ -168,6 +266,45 @@ def _selftest():
     # NOT the old hyphen-preserving "z-0001-2025"
     assert r.startswith(f"<{iri.recall('Z-0001-2025')}>"), r.splitlines()[0]
     assert "recall/z_0001_2025" in r and "z-0001-2025" not in r
+
+    # full state names (device/recall database style)
+    f = parse_distribution("Vermont")
+    assert f["us_states"] == ["VT"], f["us_states"]
+    g = parse_distribution("Distributed in New York, West Virginia and Virginia.")
+    assert g["us_states"] == ["NY", "VA", "WV"], g["us_states"]   # no stray NE/WV mix-ups
+    # ambiguous two-letter words in prose are NOT states
+    h = parse_distribution("Product shipped to hospitals in TX or OK.")
+    assert "TX" in h["us_states"] and "IN" not in h["us_states"] and "OR" not in h["us_states"], h
+    # ... but they ARE states inside an explicit code list
+    i = parse_distribution("US: IN, OR, ME")
+    assert i["us_states"] == ["IN", "ME", "OR"], i["us_states"]
+
+    # unlabeled phrasings from the live sample
+    j = parse_distribution("International distribution to the countries of Austria, Germany, Luxembourg.")
+    assert j["ous_countries"] == ["Austria", "Germany", "Luxembourg"] and j["us_states"] == [], j
+    k = parse_distribution("International distribution to the country of Japan.")
+    assert k["ous_countries"] == ["Japan"], k
+    assert parse_distribution("United States.")["us_nationwide"] is True
+    assert parse_distribution("US and US Territories.")["us_nationwide"] is True
+    w = parse_distribution("Worldwide distribution.")
+    assert w["worldwide"] is True and w["ous_countries"] == ["Worldwide"], w
+
+    assert parse_distribution("Distribution in the US state of MA")["us_states"] == ["MA"]
+    row = parse_distribution("US and ROW.")
+    assert row["us_nationwide"] is True and row["worldwide"] is True, row
+    mix = parse_distribution("Worldwide - US Nationwide distribution in the states of FL, GA, IL, "
+                             "and the countries of Guatemala and Panama.")
+    assert mix["us_states"] == ["FL", "GA", "IL"], mix["us_states"]
+    assert mix["worldwide"] and mix["ous_countries"] == ["Worldwide", "Guatemala", "Panama"], mix
+    eu = parse_distribution("International distribution in the states of Austria, Spain.")
+    assert eu["ous_countries"] == ["Austria", "Spain"] and eu["us_states"] == [], eu
+
+    # converter helper
+    pr = distribution_pairs("US Nationwide distribution.  OUS: Canada")
+    assert ("ex:distributedNationwide", '"true"^^xsd:boolean') in pr
+    assert ("ex:distributedToCountry", '"Canada"') in pr
+    nl = distribution_pairs("OUS: Brazil, \nCHILE")
+    assert all("\n" not in v for _, v in nl), nl            # regression: newline in a country
 
     print("distribution_parser.py self-test PASSED.")
 

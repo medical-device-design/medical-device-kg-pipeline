@@ -23,6 +23,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))          # .../pipeline
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 from sources import base   # noqa: E402
+import licence              # noqa: E402
 
 
 def main(argv=None):
@@ -34,11 +35,14 @@ def main(argv=None):
     ap.add_argument("--downloads", default="downloads", help="raw bulk files root")
     ap.add_argument("--out", default="out", help="generated .ttl root")
     ap.add_argument("--shapes", default="ontology/shapes", help="SHACL shapes dir")
+    ap.add_argument("--restricted-out", default=None,
+                    help="output dir for licensed (open_release=no) sources; never published")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args(argv)
 
     if a.selftest:
         base._selftest()
+        licence._selftest()
         print("run.py OK. discovered sources:", base.source_names() or "(none yet)")
         return 0
 
@@ -50,10 +54,19 @@ def main(argv=None):
         return 0
 
     downloads, out = Path(a.downloads), Path(a.out)
+    register = licence.load()
     failures = 0
     for name in names:
+        # Licence gate (A2): no register row, no triples.
+        try:
+            row = licence.check(name, register, allow_restricted=bool(a.restricted_out))
+        except licence.LicenceError as e:
+            print(f"== {name} == BLOCKED: {e}")
+            failures += 1
+            continue
+        out = Path(a.out) if row["open_release"].strip().lower() == "yes" else Path(a.restricted_out)
         mod = base.load_source(name)
-        print(f"== {name}  ({mod.DATASET}) ==")
+        print(f"== {name}  ({mod.DATASET}) ==  licence: {row['licence']}")
         dl = downloads / name
         if a.stage in ("fetch", "all"):
             man = mod.fetch(dl)

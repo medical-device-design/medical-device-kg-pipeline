@@ -1,0 +1,45 @@
+# SHACL shapes for the identity backbone (A1) and recall events.
+# Release gate: a failing shape blocks the release (principle h).
+
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix ex:   <https://bmedesign.org/medical-device-kg/ns/> .
+@prefix :     <https://bmedesign.org/medical-device-kg/shapes/> .
+
+:IdentityMappingShape a sh:NodeShape ;
+    sh:targetClass ex:IdentityMapping ;
+    sh:property [ sh:path ex:mappingSubject ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:mappingObject  ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:mappingMethod  ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:in ( "shared-fei" "shared-duns" "normalized-name-exact" "name-token-score" ) ] ;
+    sh:property [ sh:path ex:mappingConfidence ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:decimal ;
+                  sh:minInclusive 0 ; sh:maxInclusive 1 ] ;
+    sh:property [ sh:path ex:mappingStatus ; sh:minCount 1 ; sh:in ( "accepted" "candidate" ) ] ;
+    sh:property [ sh:path ex:mappingDate ; sh:datatype xsd:date ] .
+
+# The graph never asserts owl:sameAs. Any subject that uses it fails the release.
+:NoSameAsShape a sh:NodeShape ;
+    sh:targetSubjectsOf owl:sameAs ;
+    sh:property [ sh:path owl:sameAs ; sh:maxCount 0 ;
+                  sh:message "owl:sameAs is forbidden; use a scored ex:IdentityMapping." ] .
+
+:FirmNameShape a sh:NodeShape ;
+    sh:targetClass ex:FirmName ;
+    sh:property [ sh:path ex:normalizedName ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path rdfs:label ; sh:minCount 1 ] .
+
+:RecallEventShape a sh:NodeShape ;
+    sh:targetClass ex:RecallEvent ;
+    sh:property [ sh:path ex:recallEventNumber ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path ex:recallInitiationDate ; sh:datatype xsd:date ] .
+
+:RecallGeographyShape a sh:NodeShape ;
+    sh:targetClass ex:RecallRecord ;
+    sh:property [ sh:path ex:distributedToState ; sh:datatype xsd:string ;
+                  sh:pattern "^[A-Z]{2}$" ; sh:message "distributedToState must be a 2-letter code." ] ;
+    sh:property [ sh:path ex:terminationDate ; sh:datatype xsd:date ] ;
+    sh:property [ sh:path ex:centerClassificationDate ; sh:datatype xsd:date ] ;
+    sh:property [ sh:path ex:hasRecallingManufacturer ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:partOfRecallEvent ; sh:nodeKind sh:IRI ; sh:maxCount 1 ] .

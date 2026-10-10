@@ -51,20 +51,8 @@ def fetch(dest):
 
 
 def _iter_records(src):
-    """Yield each 510(k) result dict from *.json / *.json.zip / *.zip under src.
-    openFDA partitions are zipped JSON with a top-level {meta, results:[...]}."""
-    src = Path(src)
-    paths = sorted(set(src.glob("*.json")) | set(src.glob("*.zip")) | set(src.glob("*.json.zip")))
-    for p in paths:
-        if p.name.endswith(".zip"):
-            with zipfile.ZipFile(p) as z:
-                for n in z.namelist():
-                    if n.endswith(".json"):
-                        for rec in json.loads(z.read(n)).get("results", []):
-                            yield rec
-        else:
-            for rec in json.loads(p.read_text(encoding="utf-8")).get("results", []):
-                yield rec
+    """Stream records one at a time (base.iter_openfda_results; ijson if installed)."""
+    yield from base.iter_openfda_results(src)
 
 
 def _first(v):

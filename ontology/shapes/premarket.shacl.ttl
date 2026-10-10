@@ -57,6 +57,44 @@
     sh:property [ sh:path ex:sourceDataset ; sh:minCount 1 ] .
 
 # ---------------------------------------------------------------------------
+# Humanitarian Device Exemption (hde.py, 2026-10-09)
+# ---------------------------------------------------------------------------
+:HDEShape a sh:NodeShape ;
+    sh:targetClass ex:HumanitarianDeviceExemption ;
+    sh:property [ sh:path ex:hdeNumber ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:message "HDE must have exactly one ex:hdeNumber." ] ;
+    sh:property [ sh:path ex:decisionDate ; sh:datatype xsd:date ] ;
+    sh:property [ sh:path ex:dateReceived ; sh:datatype xsd:date ] ;
+    sh:property [ sh:path ex:fedRegNoticeDate ; sh:datatype xsd:date ] ;
+    sh:property [ sh:path ex:reviewGranted ; sh:datatype xsd:boolean ] ;
+    sh:property [ sh:path ex:supplementOf ; sh:nodeKind sh:IRI ; sh:maxCount 1 ] ;
+    sh:property [ sh:path ex:hasProductCode ; sh:nodeKind sh:IRI ] .
+
+# ---------------------------------------------------------------------------
+# Recognized consensus standard (standards.py, 2026-10-09)
+# ---------------------------------------------------------------------------
+:RecognizedConsensusStandardShape a sh:NodeShape ;
+    sh:targetClass ex:RecognizedConsensusStandard ;
+    sh:property [ sh:path rdfs:label ; sh:minCount 1 ] ;
+    sh:property [ sh:path ex:fdaStandardId ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path ex:extentOfRecognition ; sh:in ( "Complete standard" "Partial" ) ] ;
+    sh:property [ sh:path ex:transitionPeriodEnd ; sh:datatype xsd:date ] ;
+    sh:property [ sh:path ex:listsProductCode ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:citesRegulation ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:sourceDataset ; sh:minCount 1 ] .
+
+# ---------------------------------------------------------------------------
+# 21 CFR section (cfr.py, 2026-10-09)
+# ---------------------------------------------------------------------------
+:CFRSectionShape a sh:NodeShape ;
+    sh:targetClass ex:CFRTitle21Section ;
+    sh:property [ sh:path ex:sectionNumber ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:pattern "^[0-9]+\\.[0-9]+[a-z]?$" ] ;
+    sh:property [ sh:path rdfs:label ; sh:minCount 1 ] ;
+    sh:property [ sh:path ex:inCfrPart ; sh:minCount 1 ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:regulatoryClass ; sh:in ( "1" "2" "3" ) ] .
+
+# ---------------------------------------------------------------------------
 # Product classification record (authoritative source of the ProductCode hub)
 # ---------------------------------------------------------------------------
 :ProductClassificationRecordShape a sh:NodeShape ;

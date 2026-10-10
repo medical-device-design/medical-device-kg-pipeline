@@ -123,6 +123,43 @@ def bulk_download(url, dest_dir, filename=None, timeout=120):
                    sha256=sha256_file(out_path), bytes=out_path.stat().st_size, etag=etag)
 
 
+def iter_openfda_results(src):
+    """Stream every record in an openFDA bulk download directory (*.json or
+    *.json.zip partitions), ONE RECORD AT A TIME.
+
+    Why: json.loads() on a whole partition holds every record as Python objects.
+    On VM .83 (3.8 GB RAM) the 510(k) transform was OOM-killed at 3.6 GB RSS on
+    2026-10-09. With ijson the footprint is one record, whatever the file size.
+    Falls back to json.load (old behaviour) if ijson is not installed, so a laptop
+    without it still works on small inputs."""
+    try:
+        import ijson
+    except ImportError:
+        ijson = None
+    import zipfile
+    src = Path(src)
+    paths = sorted(p for p in set(src.glob("*.json")) | set(src.glob("*.zip"))
+                   if p.name != "manifest.json")
+
+    def _from(fh):
+        if ijson is not None:
+            # use_float keeps numbers as float/int, not Decimal, so literals format the same
+            yield from ijson.items(fh, "results.item", use_float=True)
+        else:
+            yield from json.load(fh).get("results", [])
+
+    for p in paths:
+        if p.suffix == ".zip":
+            with zipfile.ZipFile(p) as z:
+                for n in sorted(z.namelist()):
+                    if n.endswith(".json"):
+                        with z.open(n) as fh:
+                            yield from _from(fh)
+        else:
+            with open(p, "rb") as fh:
+                yield from _from(fh)
+
+
 def today():
     """UTC download date, YYYY-MM-DD. Use at fetch time only."""
     return time.strftime("%Y-%m-%d", time.gmtime())
@@ -198,7 +235,7 @@ def default_validate(ttl, shapes=None):
     msgs.append("riot --validate OK")
     triples = 0
     c = subprocess.run([riot, "--count", ttl], capture_output=True, text=True)
-    for line in (c.stdout or "").splitlines():
+    for line in ((c.stdout or "") + "\n" + (c.stderr or "")).splitlines():   # riot prints counts to stderr
         if "Triples" in line:
             digits = "".join(ch for ch in line.split("=")[-1] if ch.isdigit())
             triples = int(digits) if digits else triples
@@ -261,6 +298,7 @@ def _load_by_path(name):
 #  SELF-TEST -- `python base.py`. No network.
 # ===========================================================================
 def _selftest():
+    import io
     import tempfile
 
     # Manifest round-trips

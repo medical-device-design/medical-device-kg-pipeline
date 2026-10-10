@@ -27,6 +27,7 @@ from datetime import datetime
 
 ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 YYYYMMDD = re.compile(r"^\d{8}$")
+US_DATE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")      # CDRH flat files: 02/17/2017
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,23 @@ def lang_lit(value, lang="en"):
     return f'"{esc(s)}"@{lang}' if s else None
 
 
+def capped_pairs(pred, value, cap):
+    """For very long free text (recall code_info lists thousands of serial numbers):
+    emit the first `cap` characters, plus <pred>Truncated true and <pred>Length,
+    so nothing is silently lost -- the full text stays at the record's sourceUrl.
+    Measured 2026-10-09: code_info was 411 MB of a 612 MB recall_db.ttl."""
+    if value is None:
+        return []
+    s = str(value).strip()
+    if not s:
+        return []
+    if cap is None or len(s) <= cap:        # cap=None -> keep everything (project default)
+        return [(pred, lit(s))]
+    return [(pred, lit(s[:cap] + " …")),
+            (pred + "Truncated", '"true"^^xsd:boolean'),
+            (pred + "Length", f'"{len(s)}"^^xsd:integer')]
+
+
 # ---------------------------------------------------------------------------
 # Typed literals
 # ---------------------------------------------------------------------------
@@ -83,6 +101,14 @@ def int_lit(value):
         return f'"{int(str(value).strip())}"^^xsd:integer'
     except (ValueError, TypeError):
         return None
+
+
+def gyear_lit(value):
+    """A calendar year as xsd:gYear ("2024"^^xsd:gYear), or None if not 4 digits."""
+    if value is None:
+        return None
+    s = str(value).strip()[:4]
+    return f'"{s}"^^xsd:gYear' if len(s) == 4 and s.isdigit() else None
 
 
 def float_lit(value):
@@ -126,6 +152,13 @@ def date_lit(value):
         if _valid_date(y, m, d):
             return f'"{y}-{m}-{d}"^^xsd:date'
         return f'"{esc(s)}"'          # e.g. "20169999" -- keep, don't fake a date
+
+    m = US_DATE.match(s)              # MM/DD/YYYY, used by the CDRH ftparea files
+    if m:
+        mo, d, y = m.groups()
+        if _valid_date(y, mo, d):
+            return f'"{y}-{int(mo):02d}-{int(d):02d}"^^xsd:date'
+        return f'"{esc(s)}"'
 
     # some other shape -- keep verbatim as a string, never guess
     return f'"{esc(s)}"'
@@ -212,6 +245,9 @@ def _selftest():
     assert date_lit("00000000") == '"00000000"'
     assert date_lit("20169999") == '"20169999"'               # bad month/day
     assert date_lit("2016-13-45") == '"2016-13-45"'           # ISO-shaped but unreal
+    assert date_lit("02/17/2017") == '"2017-02-17"^^xsd:date'   # CDRH flat-file shape
+    assert date_lit("2/3/2017") == '"2017-02-03"^^xsd:date'
+    assert date_lit("13/45/2017") == '"13/45/2017"'                # unreal -> kept as string
     assert date_lit("") is None
     assert date_lit(None) is None
     # --- booleans: strings -> typed --------------------------------------
@@ -232,6 +268,13 @@ def _selftest():
     assert lit("") is None
     assert lit('a"b') == '"a\\"b"'
     assert lit("a\nb") == '"a\\nb"'
+    # --- capped long text --------------------------------------------------
+    assert capped_pairs("ex:codeInfo", "abc", 10) == [("ex:codeInfo", '"abc"')]
+    cp = capped_pairs("ex:codeInfo", "x" * 25, 10)
+    assert cp[0][1].startswith('"xxxxxxxxxx') and ("ex:codeInfoTruncated", '"true"^^xsd:boolean') in cp
+    assert ("ex:codeInfoLength", '"25"^^xsd:integer') in cp
+    assert capped_pairs("ex:codeInfo", "  ", 10) == []
+    assert capped_pairs("ex:codeInfo", "x" * 25, None) == [("ex:codeInfo", '"' + "x" * 25 + '"')]  # no loss
     # --- lists ------------------------------------------------------------
     assert as_list(["a", " b ", ""]) == ["a", "b"]
     assert as_list("a; b ;;c") == ["a", "b", "c"]

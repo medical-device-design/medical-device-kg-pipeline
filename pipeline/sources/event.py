@@ -33,30 +33,36 @@ DOWNLOAD_INDEX = "https://api.fda.gov/download.json"
 SOURCE_URL = "https://open.fda.gov/apis/device/event/"
 
 
+def local_name(url):
+    """Unique local filename for a MAUDE partition.
+
+    MAUDE partitions are split by quarter and REUSE file names across quarters:
+        .../device/event/2024q1/device-event-0001-of-0009.json.zip
+        .../device/event/2023q4/device-event-0001-of-0009.json.zip
+    Saving by the last path segment alone silently overwrote 316 of 371 files on
+    2026-10-09 (caught on VM .83 before any build used them). The quarter folder is
+    therefore part of the name:  2024q1__device-event-0001-of-0009.json.zip"""
+    parts = url.rstrip("/").split("/")
+    return f"{parts[-2]}__{parts[-1]}" if len(parts) >= 2 else parts[-1]
+
+
 def fetch(dest):
     """Bulk-download every device/event partition (no paging -- closes D9)."""
     dest = Path(dest)
     with urllib.request.urlopen(DOWNLOAD_INDEX, timeout=120) as r:
         idx = json.loads(r.read())
     partitions = idx["results"]["device"]["event"]["partitions"]
-    files = [base.bulk_download(p["file"], dest) for p in partitions]
+    names = [local_name(p["file"]) for p in partitions]
+    if len(set(names)) != len(names):
+        raise RuntimeError("MAUDE partition names still collide; refusing to overwrite files")
+    files = [base.bulk_download(p["file"], dest, filename=n) for p, n in zip(partitions, names)]
     return base.Manifest(source=NAME, dataset=DATASET,
                          retrieved_at=base.today(), files=files)
 
 
 def _iter_records(src):
-    src = Path(src)
-    paths = sorted(set(src.glob("*.json")) | set(src.glob("*.zip")) | set(src.glob("*.json.zip")))
-    for p in paths:
-        if p.name.endswith(".zip"):
-            with zipfile.ZipFile(p) as z:
-                for n in z.namelist():
-                    if n.endswith(".json"):
-                        for rec in json.loads(z.read(n)).get("results", []):
-                            yield rec
-        else:
-            for rec in json.loads(p.read_text(encoding="utf-8")).get("results", []):
-                yield rec
+    """Stream records one at a time (base.iter_openfda_results; ijson if installed)."""
+    yield from base.iter_openfda_results(src)
 
 
 def transform(src, out, retrieved_at=None):
@@ -170,6 +176,9 @@ def _selftest():
     assert f"<{iri.product_code('DZE')}>" in text
     assert f"<{iri.k510('K123456')}>" in text and f"<{iri.pma('P900001')}>" in text
     assert "ex:sourceDataset \"device/event\"" in text
+    a = local_name("https://download.open.fda.gov/device/event/2024q1/device-event-0001-of-0009.json.zip")
+    b = local_name("https://download.open.fda.gov/device/event/2023q4/device-event-0001-of-0009.json.zip")
+    assert a == "2024q1__device-event-0001-of-0009.json.zip" and a != b      # quarters never collide
     print(f"event.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
 

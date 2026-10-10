@@ -1,0 +1,45 @@
+# SHACL shapes for the TPLC aggregates rebuilt from MAUDE (tplc.py, 2026-10-09).
+# Every tally is a typed, non-negative integer; every aggregate states its count
+# basis and links to the ProductCode hub; problem/outcome/year nodes point back.
+
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex:   <https://bmedesign.org/medical-device-kg/ns/> .
+@prefix :     <https://bmedesign.org/medical-device-kg/shapes/> .
+
+:TPLCRecordShape a sh:NodeShape ;
+    sh:targetClass ex:TPLCRecord ;
+    sh:property [ sh:path ex:productCode ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path ex:hasProductCode ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ;
+    sh:property [ sh:path ex:reportCount ; sh:minCount 1 ; sh:maxCount 1 ;
+                  sh:datatype xsd:integer ; sh:minInclusive 1 ] ;
+    sh:property [ sh:path ex:deathReportCount ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:minInclusive 0 ] ;
+    sh:property [ sh:path ex:injuryReportCount ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:minInclusive 0 ] ;
+    sh:property [ sh:path ex:malfunctionReportCount ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:minInclusive 0 ] ;
+    sh:property [ sh:path ex:firstReportDate ; sh:maxCount 1 ; sh:datatype xsd:date ] ;
+    sh:property [ sh:path ex:lastReportDate ; sh:maxCount 1 ; sh:datatype xsd:date ] ;
+    sh:property [ sh:path ex:countBasis ; sh:minCount 1 ;
+                  sh:message "TPLC aggregate must state its count basis (passive-surveillance caveat)." ] ;
+    sh:property [ sh:path ex:hasDeviceProblem ; sh:class ex:DeviceProblem ] ;
+    sh:property [ sh:path ex:hasMDRStatistic ; sh:class ex:MDRStatistic ] ;
+    sh:property [ sh:path ex:sourceDataset ; sh:minCount 1 ] .
+
+:DeviceProblemShape a sh:NodeShape ;
+    sh:targetClass ex:DeviceProblem ;
+    sh:property [ sh:path rdfs:label ; sh:minCount 1 ] ;
+    sh:property [ sh:path ex:reportCount ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:minInclusive 1 ] ;
+    sh:property [ sh:path ex:relatedTPLC ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] .
+
+:PatientOutcomeShape a sh:NodeShape ;
+    sh:targetClass ex:PatientOutcome ;
+    sh:property [ sh:path rdfs:label ; sh:minCount 1 ] ;
+    sh:property [ sh:path ex:outcomeType ; sh:minCount 1 ; sh:maxCount 1 ; sh:in ( "outcome" "patient problem" ) ] ;
+    sh:property [ sh:path ex:reportCount ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:minInclusive 1 ] ;
+    sh:property [ sh:path ex:relatedTPLC ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] .
+
+:MDRStatisticShape a sh:NodeShape ;
+    sh:targetClass ex:MDRStatistic ;
+    sh:property [ sh:path ex:year ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:gYear ] ;
+    sh:property [ sh:path ex:reportCount ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:integer ; sh:minInclusive 1 ] ;
+    sh:property [ sh:path ex:relatedTPLC ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] .
