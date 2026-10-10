@@ -175,7 +175,7 @@ ex:RecognizedConsensusStandard a owl:Class ;
 ex:TPLCRecord a owl:Class ;
     rdfs:subClassOf ex:PostmarketRecord ;
     rdfs:label "Total Product Life Cycle Record" ;
-    rdfs:comment "FDA's own aggregate per product code -- complete, unlike the MAUDE sample. 7,034 instances." .
+    rdfs:comment "Per-product-code life-cycle aggregate. Legacy graph: 7,034 instances scraped from FDA TPLC pages. Rebuild (tplc.py): recomputed from every MAUDE report in openFDA device/event, all years; see ex:countBasis." .
 
 ex:RecallRecord a owl:Class ;
     rdfs:subClassOf ex:PostmarketRecord ;
@@ -619,6 +619,22 @@ ex:regulatoryClass      a owl:DatatypeProperty ; rdfs:range xsd:string ;
 ex:regulationText       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "regulation text (all paragraphs, in full)" .
 ex:cfrCitation          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "Federal Register source citation" .
 ex:citesRegulation      a owl:ObjectProperty ; rdfs:domain ex:RecognizedConsensusStandard ; rdfs:range ex:RegulationNumber ; rdfs:label "FDA lists 21 CFR regulation" .
+
+# ---- TPLC rebuilt from full MAUDE (tplc.py, 2026-10-09) ----
+# TPLCRecord, DeviceProblem, PatientOutcome and MDRStatistic keep their legacy class
+# names so existing queries work; they are now computed from every MAUDE report
+# instead of scraped from the TPLC web pages.
+ex:deathReportCount       a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "MDR reports with event type Death" .
+ex:injuryReportCount      a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "MDR reports with event type Injury" .
+ex:malfunctionReportCount a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "MDR reports with event type Malfunction" .
+ex:otherReportCount       a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "MDR reports with another or no event type" .
+ex:firstReportDate        a owl:DatatypeProperty ; rdfs:domain ex:TPLCRecord ; rdfs:range xsd:date ; rdfs:label "earliest MDR receipt date for the product code" .
+ex:lastReportDate         a owl:DatatypeProperty ; rdfs:domain ex:TPLCRecord ; rdfs:range xsd:date ; rdfs:label "latest MDR receipt date for the product code" .
+ex:countBasis             a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "how the counts were computed" ;
+    rdfs:comment "States the counting unit and the passive-surveillance caveat on every aggregate, so a consumer never mistakes report counts for failure rates." .
+ex:outcomeType            a owl:DatatypeProperty ; rdfs:domain ex:PatientOutcome ; rdfs:range xsd:string ;
+    rdfs:label "outcome kind ('outcome' such as Death/Hospitalization, or 'patient problem' such as Burn)" .
 
 
 # =============================================================================
