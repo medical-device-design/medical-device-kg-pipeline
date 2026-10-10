@@ -672,6 +672,13 @@ ex:eventDescription       a owl:DatatypeProperty ; rdfs:domain ex:MAUDEReport ; 
 ex:manufacturerNarrative  a owl:DatatypeProperty ; rdfs:domain ex:MAUDEReport ; rdfs:range xsd:string ; rdfs:label "additional manufacturer narrative (FDA-published)" .
 ex:mdrText                a owl:DatatypeProperty ; rdfs:domain ex:MAUDEReport ; rdfs:range xsd:string ; rdfs:label "other MDR narrative text" .
 
+# ---- recall class from FDA's recall pages (recall_class.py, 2026-10-10) ----
+ex:recallClassificationSource a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "where the recall class came from" ;
+    rdfs:comment "Absent when the class comes from the enforcement reports; 'FDA recall database web page (cfRES)' when it was read from FDA's recall page because the record is not in the enforcement feed." .
+ex:recallNumberStatus     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "recall number status ('not yet assigned by FDA' for reports posted before numbering)" .
+ex:cfresStatus            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "recall status as shown on FDA's recall page (e.g. 'Terminated on March 24, 2004')" .
+
 
 # =============================================================================
 # EXTERNAL VOCABULARIES  -- reused, never redefined. We do not own these terms;
