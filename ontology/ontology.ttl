@@ -280,8 +280,9 @@ ex:hasRegulationNumber a owl:ObjectProperty ;
     rdfs:label "has regulation number" .
 
 ex:hasCFRSection a owl:ObjectProperty ;
-    rdfs:domain ex:ProductCode ; rdfs:range ex:CFRTitle21Section ;
-    rdfs:label "has 21 CFR section" .
+    rdfs:domain ex:RegulationNumber ; rdfs:range ex:CFRTitle21Section ;
+    rdfs:label "has 21 CFR section" ;
+    rdfs:comment "Emitted by cfr.py on RegulationNumber nodes (ProductCode -> hasRegulationNumber -> hasCFRSection). Domain corrected 2026-10-09; it was ProductCode, which would mis-type regulations under RDFS inference." .
 
 ex:hasNAICSMapping a owl:ObjectProperty ;
     rdfs:domain ex:ProductCode ; rdfs:range ex:ProductCodeNAICSMapping ;
@@ -468,9 +469,156 @@ ex:geocodingSource     a owl:DatatypeProperty ; rdfs:range xsd:string  ; rdfs:la
 # ---- NAICS crosswalk provenance (keeps inferred-vs-authoritative queryable) ----
 ex:naicsCode         a owl:DatatypeProperty ; rdfs:domain ex:NAICSClassification ; rdfs:range xsd:string  ; rdfs:label "six-digit NAICS code (cross-graph join key)" .
 ex:naicsVersion      a owl:DatatypeProperty ; rdfs:domain ex:NAICSClassification ; rdfs:range xsd:string  ; rdfs:label "NAICS taxonomy version" .
-ex:mappingMethod     a owl:DatatypeProperty ; rdfs:domain ex:ProductCodeNAICSMapping ; rdfs:range xsd:string  ; rdfs:label "how the NAICS mapping was derived" .
-ex:mappingConfidence a owl:DatatypeProperty ; rdfs:domain ex:ProductCodeNAICSMapping ; rdfs:range xsd:decimal ; rdfs:label "NAICS mapping confidence (0.0-1.0)" .
-ex:mappingSource     a owl:DatatypeProperty ; rdfs:domain ex:ProductCodeNAICSMapping ; rdfs:range xsd:string  ; rdfs:label "provenance label (never claims FDA supplied the code)" .
+# Domains widened to ex:Mapping (2026-10-02) so NAICS and identity mappings share
+# one reified pattern without rdfs:domain inference mis-typing either.
+ex:mappingMethod     a owl:DatatypeProperty ; rdfs:domain ex:Mapping ; rdfs:range xsd:string  ; rdfs:label "how the mapping was derived" .
+ex:mappingConfidence a owl:DatatypeProperty ; rdfs:domain ex:Mapping ; rdfs:range xsd:decimal ; rdfs:label "mapping confidence (0.0-1.0)" .
+ex:mappingSource     a owl:DatatypeProperty ; rdfs:domain ex:Mapping ; rdfs:range xsd:string  ; rdfs:label "provenance label (never claims FDA supplied the code)" .
+
+# =============================================================================
+# IDENTITY BACKBONE (action plan A1) and RECALL DATABASE (device/recall), 2026-10-02
+# =============================================================================
+ex:Mapping a owl:Class ;
+    rdfs:label "Mapping" ;
+    rdfs:comment "A reified, scored link between two nodes. Carries method, confidence, status, date and evidence. Used INSTEAD of owl:sameAs, which this graph never asserts on a scored match." .
+ex:ProductCodeNAICSMapping rdfs:subClassOf ex:Mapping .
+ex:IdentityMapping a owl:Class ; rdfs:subClassOf ex:Mapping ;
+    rdfs:label "Organization identity mapping" ;
+    rdfs:comment "Links a FirmName node to an FEI-keyed Manufacturer or DUNS-keyed Labeler. Method shared-fei / shared-duns = 1.0; name-based methods are scored. Status 'accepted' (>=0.90) or 'candidate' (0.60-0.90, human review)." .
+ex:FirmName a owl:Class ;
+    rdfs:label "Firm (as named)" ;
+    rdfs:comment "An organization as named in a source that supplies no identifier (e.g. enforcement recalling_firm), keyed on the normalized name so spelling variants share one node." .
+ex:RecallEvent a owl:Class ;
+    rdfs:label "Recall event" ;
+    rdfs:comment "One FDA recall event (res_event_number / event_id) grouping one or more product-level RecallRecords." .
+
+ex:mappingSubject     a owl:ObjectProperty   ; rdfs:domain ex:Mapping ; rdfs:label "mapping subject" .
+ex:mappingObject      a owl:ObjectProperty   ; rdfs:domain ex:Mapping ; rdfs:label "mapping object" .
+ex:mappingStatus      a owl:DatatypeProperty ; rdfs:domain ex:Mapping ; rdfs:range xsd:string ; rdfs:label "mapping status (accepted/candidate)" .
+ex:mappingEvidence    a owl:DatatypeProperty ; rdfs:domain ex:Mapping ; rdfs:range xsd:string ; rdfs:label "mapping evidence" .
+ex:mappingDate        a owl:DatatypeProperty ; rdfs:domain ex:Mapping ; rdfs:range xsd:date   ; rdfs:label "date the mapping was computed" .
+ex:normalizedName     a owl:DatatypeProperty ; rdfs:domain ex:FirmName ; rdfs:range xsd:string ; rdfs:label "normalized organization name" .
+ex:hasRecallingFirm   a owl:ObjectProperty   ; rdfs:domain ex:RecallRecord ; rdfs:range ex:FirmName ; rdfs:label "has recalling firm (as named)" .
+ex:hasRecallingManufacturer a owl:ObjectProperty ; rdfs:domain ex:RecallRecord ; rdfs:range ex:Manufacturer ;
+    rdfs:label "has recalling manufacturer (FEI-exact)" .
+ex:partOfRecallEvent  a owl:ObjectProperty   ; rdfs:domain ex:RecallRecord ; rdfs:range ex:RecallEvent ; rdfs:label "part of recall event" .
+ex:recallEventNumber  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "recall event number" .
+ex:rootCauseDescription a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA-assigned recall root cause" .
+ex:recallAction       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "action the firm instructed" .
+ex:firmFEINumber      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "recalling firm FEI number" .
+ex:cfresId            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA recall database (CFRES) id" .
+ex:eventDatePosted    a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "date posted by FDA" .
+ex:distributedToState a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "distributed to US state/territory (2-letter code)" ;
+    rdfs:comment "Parsed from ex:distributionPattern by distribution_parser.py; the join key to state-keyed OKN graphs." .
+ex:distributedToCountry  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "distributed to country (outside US)" .
+ex:distributedNationwide a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "distribution stated only as US nationwide" .
+ex:distributedInUS       a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "false when FDA states no US distribution" .
+
+# =============================================================================
+# DECLARATIONS ADDED 2026-10-09 by scripts/vocab_check.py (ontology/data agreement,
+# defect D2). Every term below is emitted by a rebuild converter; before today it
+# was used in data but never declared.
+# =============================================================================
+# ---- premarket: 510(k), PMA, HDE ----
+ex:premarketSubmissionNumber a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "premarket submission number on a UDI record (510(k)/PMA/De Novo)" .
+ex:kNumber              a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "510(k) / De Novo number" .
+ex:pmaNumber            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "PMA number" .
+ex:hdeNumber            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "HDE number" .
+ex:tradeName            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "trade name" .
+ex:genericName          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "generic name" .
+ex:clearanceType        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "510(k) clearance type (Traditional/Special/Abbreviated)" .
+ex:decisionCode         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA decision code" .
+ex:decisionDescription  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA decision description" .
+ex:advisoryCommittee    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "advisory committee code" .
+ex:reviewAdvisoryCommittee a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "review advisory committee" .
+ex:expeditedReviewFlag  a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "expedited review" .
+ex:thirdPartyFlag       a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "eligible for / reviewed by third party" .
+ex:docketNumber         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "docket number" .
+ex:approvalOrderStatement a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "approval order statement" .
+ex:supplementNumber     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "supplement number" .
+ex:supplementType       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "supplement type / review track" .
+ex:supplementReason     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "reason for supplement" .
+ex:supplementOf         a owl:ObjectProperty ; rdfs:label "supplement of (PMA or HDE base record)" .
+ex:reviewGranted        a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "HDE review granted" .
+ex:fedRegNoticeDate     a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "Federal Register notice date" .
+ex:hasApplicantFirm     a owl:ObjectProperty ; rdfs:range ex:FirmName ; rdfs:label "has applicant firm (as named)" .
+
+# ---- classification (record-level flags; ex:implantable / ex:lifeSustaining are
+#      the same flags copied onto the ProductCode hub for one-hop queries) ----
+ex:reviewPanel          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "review panel" .
+ex:reviewCode           a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "review code" .
+ex:submissionTypeId     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "submission type id" .
+ex:gmpExemptFlag        a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "GMP exempt" .
+ex:implantFlag          a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "implant (classification record)" .
+ex:lifeSustainSupportFlag a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "life-sustaining/supporting (classification record)" .
+ex:implantable          a owl:DatatypeProperty ; rdfs:domain ex:ProductCode ; rdfs:range xsd:boolean ; rdfs:label "implantable (on product-code hub)" .
+ex:lifeSustaining       a owl:DatatypeProperty ; rdfs:domain ex:ProductCode ; rdfs:range xsd:boolean ; rdfs:label "life-sustaining (on product-code hub)" .
+
+# ---- postmarket: recalls and MAUDE ----
+ex:recallNumber         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "recall (product) number" .
+ex:eventId              a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "recall event id (enforcement feed)" .
+ex:productDescription   a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "product description" .
+ex:codeInfo             a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "code information (lots, models, serials; free text)" ;
+    rdfs:comment "Unstructured; the lot/model/serial parser that structures it is part of the commercial layer, not the open graph." .
+ex:codeInfoTruncated    a owl:DatatypeProperty ; rdfs:range xsd:boolean ;
+    rdfs:label "code information was truncated" ;
+    rdfs:comment "Only emitted if a build sets a cap (common.capped_pairs). The project default is NO cap: full code_info is kept (PI decision 2026-10-09). Uncapped, code_info is ~411 MB of TTL in recall_db." .
+ex:codeInfoLength       a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "original length of the code information, in characters" .
+ex:voluntaryMandated    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "voluntary or FDA-mandated" .
+ex:initialFirmNotification a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "how the firm first notified customers" .
+ex:mdrReportKey         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "MDR report key" .
+ex:reportNumber         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "MDR report number" .
+ex:reportSourceCode     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "report source code" .
+ex:sourceType           a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "MDR source type" .
+ex:eventType            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "adverse event type (death/injury/malfunction)" .
+ex:dateOfEvent          a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "date of event" .
+ex:deviceProblem        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device problem (literal)" .
+ex:patientProblem       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "patient problem (literal)" .
+ex:patientOutcome       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "patient outcome (literal)" .
+ex:manufacturerName     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "manufacturer name as reported" .
+
+# ---- registration & listing ----
+ex:name                 a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "establishment name" .
+ex:address              a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "street address" .
+ex:establishmentType    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "establishment type" .
+ex:proprietaryName      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "proprietary (brand) name" .
+ex:statusCode           a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "registration status code" .
+ex:initialImporterFlag  a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "initial importer" .
+
+# ---- recognized consensus standards (standards.py, 2026-10-09) ----
+ex:recognitionNumber    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA recognition number (e.g. 3-96)" .
+ex:recognitionArea      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "recognition-number prefix (FDA specialty area code)" .
+ex:frRecognitionList    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "Federal Register recognition list number" .
+ex:recognitionDate      a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "date of entry on the recognition list" .
+ex:standardDesignation  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "standard designation and edition" .
+ex:standardsDevelopmentOrganization a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "standards development organization (abbreviation)" .
+ex:identicalAdoption    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "identical national adoption (e.g. ANSI AAMI ISO ...)" .
+ex:extentOfRecognition  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "extent of recognition (Complete standard / Partial)" .
+ex:partialRecognitionText a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "what is (not) recognized, when partial" .
+ex:scope                a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "scope / abstract (FDA summary, not the standard text)" .
+ex:recognitionRationale a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "rationale for recognition" .
+ex:relevantGuidance     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "relevant FDA guidance" .
+ex:transitionPeriodEnd  a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "end of transition period (superseded recognition)" .
+ex:transitionNote       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "transition note" .
+ex:specialtyTaskGroup   a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA specialty task group" .
+ex:fdaStandardId        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA standards database id" .
+ex:listsProductCode     a owl:ObjectProperty ; rdfs:domain ex:RecognizedConsensusStandard ; rdfs:range ex:ProductCode ;
+    rdfs:label "FDA lists product code" ;
+    rdfs:comment "FDA lists these product codes as EXAMPLES; others may be applicable. Not an exhaustive applicability claim." .
+# ---- 21 CFR (cfr.py, govinfo eCFR bulk XML, 2026-10-09) ----
+ex:cfrPartNumber        a owl:DatatypeProperty ; rdfs:domain ex:CfrPart ; rdfs:range xsd:string ; rdfs:label "21 CFR part number" .
+ex:sectionNumber        a owl:DatatypeProperty ; rdfs:domain ex:CFRTitle21Section ; rdfs:range xsd:string ; rdfs:label "21 CFR section number" .
+ex:inCfrPart            a owl:ObjectProperty ; rdfs:domain ex:CFRTitle21Section ; rdfs:range ex:CfrPart ; rdfs:label "in 21 CFR part" .
+ex:identificationText   a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "(a) Identification -- the legal definition of the device type" .
+ex:classificationText   a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "(b) Classification paragraph" .
+ex:regulatoryClass      a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "device class stated in the regulation (1/2/3)" ;
+    rdfs:comment "Parsed from the (b) Classification paragraph; a section that classifies variants differently carries several values." .
+ex:regulationText       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "regulation text (all paragraphs, in full)" .
+ex:cfrCitation          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "Federal Register source citation" .
+ex:citesRegulation      a owl:ObjectProperty ; rdfs:domain ex:RecognizedConsensusStandard ; rdfs:range ex:RegulationNumber ; rdfs:label "FDA lists 21 CFR regulation" .
 
 
 # =============================================================================
