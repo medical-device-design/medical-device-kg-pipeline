@@ -185,7 +185,7 @@ ex:RecallRecord a owl:Class ;
 ex:MAUDEReport a owl:Class ;
     rdfs:subClassOf ex:AdverseEventReport ;
     rdfs:label "MAUDE Adverse Event Report" ;
-    rdfs:comment "A SAMPLE (15,284 of 25.7M). Lead with TPLC, which is complete." .
+    rdfs:comment "Legacy graph: a 15,284-report sample. Rebuild (event.py): every report in openFDA device/event (26.1 M on 2026-10-10). Narratives are in event_text.ttl. For counts per product code, use the TPLC aggregates." .
 
 ex:Postmarket522Study a owl:Class ;
     rdfs:subClassOf ex:PostmarketRecord ;
@@ -635,6 +635,42 @@ ex:countBasis             a owl:DatatypeProperty ; rdfs:range xsd:string ;
     rdfs:comment "States the counting unit and the passive-surveillance caveat on every aggregate, so a consumer never mistakes report counts for failure rates." .
 ex:outcomeType            a owl:DatatypeProperty ; rdfs:domain ex:PatientOutcome ; rdfs:range xsd:string ;
     rdfs:label "outcome kind ('outcome' such as Death/Hospitalization, or 'patient problem' such as Burn)" .
+
+# ---- MAUDE individual reports, full field set (event.py, 2026-10-09) ----
+# Not ingested on purpose: manufacturer contact persons and patient demographics.
+ex:adverseEventFlag       a owl:DatatypeProperty ; rdfs:domain ex:MAUDEReport ; rdfs:range xsd:boolean ; rdfs:label "report describes an adverse event" .
+ex:productProblemFlag     a owl:DatatypeProperty ; rdfs:domain ex:MAUDEReport ; rdfs:range xsd:boolean ; rdfs:label "report describes a product problem" .
+ex:summaryReportFlag      a owl:DatatypeProperty ; rdfs:domain ex:MAUDEReport ; rdfs:range xsd:boolean ; rdfs:label "summary (alternative summary) report" .
+ex:typeOfReport           a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "type of report (initial, follow-up, ...)" .
+ex:remedialAction         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "remedial action taken (recall, repair, notification, ...)" .
+ex:removalCorrectionNumber a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "correction/removal report number (21 CFR 806)" .
+ex:reporterOccupation     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "reporter occupation" .
+ex:reporterCountry        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "reporter country code" .
+ex:eventLocation          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "where the event occurred (hospital, home, ...)" .
+ex:dateManufacturerReceived a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "date the manufacturer received the information" .
+ex:dateReceivedText       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "date received as published, when it is not a valid calendar date" .
+ex:dateOfEventText        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "date of event as published, when it is not a valid calendar date" .
+ex:reportDateText         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "report date as published, when it is not a valid calendar date" .
+ex:dateManufacturerReceivedText a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "manufacturer-received date as published, when it is not a valid calendar date" .
+ex:patientTreatment       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "treatment the patient received" .
+ex:modelNumber            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device model number as reported" .
+ex:lotNumber              a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device lot number as reported" .
+ex:udiDI                  a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "UDI device identifier (DI) as reported" ;
+    rdfs:comment "Joins an adverse-event report to the UDI layer by value: ?r ex:udiDI ?di . ?id ex:identifierId ?di ; ex:belongsToDevice ?device ." .
+ex:udiPublic              a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "full human-readable UDI as reported" .
+ex:deviceManufacturerName a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device manufacturer name as reported" .
+ex:deviceManufacturerCountry a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device manufacturer country as reported" .
+ex:deviceOperator         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "who operated the device" .
+ex:deviceAvailability     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device available for evaluation" .
+ex:deviceEvaluatedByManufacturer a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device evaluated by the manufacturer (Y/N/R)" .
+ex:deviceAgeText          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device age as reported" .
+ex:relatedHDE             a owl:ObjectProperty ; rdfs:range ex:HumanitarianDeviceExemption ; rdfs:label "related HDE" .
+ex:eventDescription       a owl:DatatypeProperty ; rdfs:domain ex:MAUDEReport ; rdfs:range xsd:string ;
+    rdfs:label "description of event or problem (FDA-published narrative)" ;
+    rdfs:comment "Kept in full in event_text.ttl, separate from the structured file, so releasing narratives openly or only to licensees is a one-file decision." .
+ex:manufacturerNarrative  a owl:DatatypeProperty ; rdfs:domain ex:MAUDEReport ; rdfs:range xsd:string ; rdfs:label "additional manufacturer narrative (FDA-published)" .
+ex:mdrText                a owl:DatatypeProperty ; rdfs:domain ex:MAUDEReport ; rdfs:range xsd:string ; rdfs:label "other MDR narrative text" .
 
 
 # =============================================================================
