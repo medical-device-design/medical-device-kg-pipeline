@@ -110,46 +110,69 @@ def parse_export(text):
     return out
 
 
-def _get(url, delay, data=None, tries=6):
-    """GET/POST politely; on 429/5xx (FDA throttling) back off 30 s, 60 s, 120 s ..."""
+def _get(url, delay, data=None, tries=6, backoff=30, timeout=120):
+    """GET/POST politely; on 429/5xx back off backoff, 2x, 4x ... seconds."""
     for n in range(tries):
         time.sleep(delay)
         req = urllib.request.Request(url, data=data, headers={"User-Agent": UA})
         try:
-            return urllib.request.urlopen(req, timeout=120).read().decode("utf-8", "replace")
+            return urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
             if e.code not in (429, 500, 502, 503, 504) or n == tries - 1:
                 raise
         except (urllib.error.URLError, TimeoutError):
             if n == tries - 1:
                 raise
-        time.sleep(30 * 2 ** n)
+        time.sleep(backoff * 2 ** n)
 
 
 def fetch(dest, delay=1.0, min_last=450, stop_after=80):
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
-    found, empty, tid = [], 0, 1
-    while tid <= min_last or empty < stop_after:
-        cached = dest / f"pss_{tid}.html"           # resumable: keep pages already saved
-        if cached.exists():
-            found.append(tid)
-            empty = 0
-            tid += 1
-            continue
-        page = _get(DETAIL_URL.format(tid), delay)
+    found, failed, empty, tid = [], [], 0, 1
+
+    def try_page(t, timeout):
+        # FDA answers unused ids with a 503 after a ~60 s wait, while real pages come
+        # back in under a second: give up after `timeout`, record the id, move on;
+        # errored ids inside the found range get one slower retry at the end
+        try:
+            page = _get(DETAIL_URL.format(t), delay, tries=1, timeout=timeout)
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+            return None
         if parse_detail(page):
-            (dest / f"pss_{tid}.html").write_text(page, encoding="utf-8")
+            (dest / f"pss_{t}.html").write_text(page, encoding="utf-8")
+            return True
+        return False
+
+    while tid <= min_last or empty < stop_after:
+        if (dest / f"pss_{tid}.html").exists():     # resumable: keep pages already saved
             found.append(tid)
             empty = 0
         else:
-            empty += 1
+            ok = try_page(tid, 15)
+            if ok:
+                found.append(tid)
+                empty = 0
+            else:
+                empty += 1
+                if ok is None:
+                    failed.append(tid)
         tid += 1
+    still = []
+    top = max(found) if found else 0
+    for t in [x for x in failed if x < top]:        # one slower pass over errored ids in range
+        ok = try_page(t, 45)
+        if ok:
+            found.append(t)
+        elif ok is None:
+            still.append(t)
+    found.sort()
+    (dest / "pss_unreachable_ids.txt").write_text("\n".join(map(str, still)) + "\n", encoding="utf-8")
     body = _get(EXPORT_URL, delay, urllib.parse.urlencode(
         {"ID": ",".join(map(str, found)), "sortcolumn": "pdn", "s": "a"}).encode())
     (dest / "pss_export_open_studies.csv").write_text(body, encoding="utf-8")
     print(f"postmarket_522: {len(found)} study pages (last id tried {tid - 1}); "
-          f"{len(parse_export(body))} open studies in the export")
+          f"{len(parse_export(body))} open studies in the export; {len(still)} ids FDA would not serve")
     m = base.Manifest(source=NAME, dataset=DATASET, retrieved_at=base.today(),
                       files=[{"url": DETAIL_URL.format("N"), "path": "pss_<t_id>.html", "count": len(found)}])
     m.write(dest / "manifest.json")

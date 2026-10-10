@@ -151,15 +151,18 @@ def recall_keys(db, jena):
     return {ln.strip().strip("<>") for ln in out.splitlines()[1:] if ln.startswith("<")}
 
 
-def stream(path, keys, want):
-    """Walk a TurtleWriter file block by block; count blocks whose links hit `keys`."""
+def stream(path, keys, want, typ):
+    """Walk a TurtleWriter file block by block; for blocks typed `typ`, count the ones
+    whose links hit `keys` (premarket records or product codes that have a recall)."""
     c = collections.Counter()
     subj, links, flags = None, set(), set()
 
     def flush():
-        if subj is None:
+        if subj is None or f"a {typ}" not in flags:
             return
-        c["blocks"] += 1
+        c["records"] += 1
+        if "ex:commercialDistributionStatus \"In Commercial" in flags and {x for x in links if "/k510/" in x or "/pma/" in x} & keys:
+            c["in_commercial_distribution_and_premarket_record_recalled"] += 1
         for f in flags:
             c[f] += 1
         k5 = {x for x in links if "/k510/" in x or "/pma/" in x}
@@ -180,10 +183,12 @@ def stream(path, keys, want):
             elif subj is not None and ln.startswith("    "):
                 for m in re.finditer(r"<([^>]+)>", ln):
                     links.add(m.group(1))
-                for f in ("ex:udiDI", "ex:lotNumber", "ex:hasProductCode", "ex:commercialDistributionStatus \"In Commercial"):
+                for f in ("ex:udiDI", "ex:lotNumber", "ex:hasProductCode", "ex:commercialDistributionStatus \"In Commercial",
+                          f"a {typ}"):
                     if ln.lstrip().startswith(f):
                         flags.add(f)
         flush()
+    c.pop(f"a {typ}", None)
     return c
 
 
@@ -225,9 +230,14 @@ def main():
     ap.add_argument("--report", required=True)
     ap.add_argument("--jena", default="/srv/medical-device-kg/tools/apache-jena-5.2.0/bin")
     ap.add_argument("--skip-stream", action="store_true")
+    ap.add_argument("--skip-event", action="store_true", help="stream UDI only (MAUDE pass takes ~25 min)")
+    ap.add_argument("--add", nargs="*", default=[], help="extra TTL files to load into an existing store")
     a = ap.parse_args()
     lines = ["# Client-readiness test -- recall intelligence", ""]
     lines.append(f"Store: {load(a.db, a.out, a.recall_out, a.jena)}")
+    for f in a.add:                      # e.g. a recall_class.ttl that finished after the first load
+        r = sh(f"{a.jena}/tdb2.tdbloader --loc {a.db} {f}")
+        lines.append(f"Added {f}: {'ok' if r.returncode == 0 else r.stderr[-300:]}")
     for title, q in QUERIES:
         res, secs = query(a.db, q, a.jena)
         lines += ["", f"## {title}", f"_({secs:.1f} s)_", "", "```", res, "```"]
@@ -240,10 +250,12 @@ def main():
         print("done: gtin join", g, flush=True)
         keys = recall_keys(a.db, a.jena)
         lines += ["", f"## Streaming joins (recall-linked keys: {len(keys)})"]
-        for name, f, want in (("UDI device records", "udi.ttl", lambda s: s.startswith(f"<{ID}udi/")),
-                              ("MAUDE adverse-event reports", "event.ttl", lambda s: s.startswith(f"<{ID}report/"))):
+        streams = [("UDI device records", "udi.ttl", lambda s: s.startswith(f"<{ID}udi/"), "ex:UDIDeviceRecord")]
+        if not a.skip_event:
+            streams.append(("MAUDE adverse-event reports", "event.ttl", lambda s: s.startswith(f"<{ID}report/"), "ex:MAUDEReport"))
+        for name, f, want, typ in streams:
             t = time.time()
-            c = stream(Path(a.out) / f, keys, want)
+            c = stream(Path(a.out) / f, keys, want, typ)
             lines += ["", f"### {name} ({time.time() - t:.0f} s)", "```"] + [f"{k}\t{v}" for k, v in sorted(c.items())] + ["```"]
             print(f"done: stream {f}", flush=True)
     Path(a.report).write_text("\n".join(lines) + "\n", encoding="utf-8")
