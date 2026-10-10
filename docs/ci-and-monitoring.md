@@ -9,8 +9,13 @@ writes the human-facing guidance) build on the signals this layer produces.
 ## What runs (`.github/workflows/validate.yml`)
 
 **`checks` — every pull request and push to `main`** (no FDA data needed):
-- Python self-tests for `pipeline/iri.py`, `common.py`, `distribution_parser.py`
-  (the IRI-minting and typed-literal contracts). A drift here fails the build.
+- Python self-tests for every module under `pipeline/` and `pipeline/sources/`
+  that defines `_selftest` (the IRI-minting and typed-literal contracts, plus each
+  source converter). Modules are discovered, so a new source is covered
+  automatically. A drift here fails the build.
+- `scripts/vocab_check.py`: every `ex:` term a converter can emit must be declared
+  in `ontology/ontology.ttl`. A converter pushed ahead of its ontology terms fails
+  the build.
 - `riot --validate` on `ontology/*.ttl` and `ontology/shapes/*.ttl`.
 - `scripts/structure_lint.sh` — no committed secrets, no data TTL outside
   `ontology/`, the lakeFS snapshot stays untracked, IRIs minted only in `iri.py`
@@ -24,13 +29,17 @@ writes the human-facing guidance) build on the signals this layer produces.
 Run the smoke on demand: Actions → **validate** → **Run workflow** → tick
 "Also run the UDI smoke".
 
+Every step runs under `bash -eo pipefail` (set once with `defaults.run.shell: bash`).
+Steps pipe their output into `tee` for the diagnostics bundle, and without pipefail
+a failing command piped into `tee` is reported as success.
+
 ## Diagnostics it collects (for troubleshooting)
 
 Every job writes a `_diag/` bundle and uploads it as a run artifact
 (**Actions → the run → Artifacts**), kept 30 days:
 
 - `env.txt` — timestamp, commit SHA, event, and tool versions (python, java, riot).
-- `selftests.log`, `riot-ontology.log`, `structure-lint.log` — full step output.
+- `selftests.log`, `vocab-check.log`, `riot-ontology.log`, `structure-lint.log` — full step output.
 - smoke also adds `fetch.log`, `transform.log`, `validate.log`, `triple-counts.txt`,
   and the generated `out/udi-smoke.ttl` sample.
 
