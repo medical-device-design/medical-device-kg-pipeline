@@ -9,6 +9,7 @@ registrationlisting,device/registrationlisting,openFDA terms (US public domain r
 udi,device/udi,openFDA terms (US public domain records),https://open.fda.gov/license/,yes,GMDN term NAMES are GMDN Agency content: confirm before publishing term definitions,,
 hde,cdrh/hde,FDA public data (US public domain records),https://www.fda.gov/about-fda/about-website/website-policies,yes,ftparea hde.zip weekly flat file,,
 standards,cdrh/standards,FDA public data (US public domain records); standard TEXTS are SDO copyright and are never ingested,https://www.fda.gov/about-fda/about-website/website-policies,yes,ftparea standards.zip + detail pages for product-code links; titles/scope only,,
+recall_class,cdrh/cfRES,FDA public data (US public domain records),https://www.fda.gov/about-fda/about-website/website-policies,yes,Recall class read from FDA recall pages for recalls missing from the enforcement feed; contact persons not ingested; 1 request/second,,
 tplc,device/event,openFDA terms (US public domain records),https://open.fda.gov/license/,yes,TPLC aggregates computed from MAUDE bulk; replaces scraped TPLC pages,,
 cfr,ecfr/title-21,US Government work (public domain),https://www.govinfo.gov/about/policies,yes,govinfo eCFR bulk XML title 21; parts 800-898 and 1000-1050 only,,
 gmdn_definitions,GMDN Agency,GMDN Agency licence,https://www.gmdnagency.org/,no,Licensed overlay only; never in the open release,,
