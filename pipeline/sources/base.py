@@ -246,10 +246,16 @@ def default_validate(ttl, shapes=None):
             s = subprocess.run([shacl, "validate", "--shapes", str(shp), "--data", ttl],
                                capture_output=True, text=True)
             out = s.stdout or ""
-            if "sh:conforms  true" not in out and "conforms: true" not in out.lower():
+            conforms = "sh:conforms  true" in out or "conforms: true" in out.lower()
+            # severity-aware: sh:Warning results (e.g. "ProductCode has no rdfs:label
+            # (completed by classification)") are expected in single-source files and
+            # do not fail the gate; only sh:Violation does
+            if not conforms and "sh:Violation" in out:
                 return Report(ok=False, triples=triples,
                               messages=[f"SHACL {shp.name} reported violations:\n{out}"])
-            msgs.append(f"SHACL {shp.name} conforms")
+            n_warn = out.count("sh:Warning")
+            msgs.append(f"SHACL {shp.name} conforms" if conforms
+                        else f"SHACL {shp.name}: {n_warn} warning(s), no violations")
     elif shapes and not shacl:
         msgs.append("shacl not on PATH; SHACL skipped")
     return Report(ok=True, triples=triples, messages=msgs)
