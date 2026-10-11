@@ -1,0 +1,17 @@
+#+ summary: Class I recalls by US state of the recalling manufacturer's geocoded registered establishment (joined by FDA FEI number).
+#+ tags:
+#+   - medical-device-kg
+
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+PREFIX wgs: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+
+SELECT ?state (COUNT(DISTINCT ?r) AS ?class_I_recalls) WHERE {
+  ?r ex:recallClassification "Class I" ;
+     ex:hasRecallingManufacturer ?m .
+  ?e ex:hasManufacturer ?m ;
+     wgs:lat ?lat ;
+     ex:state ?state .
+}
+GROUP BY ?state
+ORDER BY DESC(?class_I_recalls)
+LIMIT 15

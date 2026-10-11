@@ -1,0 +1,24 @@
+#+ summary: FDA product codes (device types) with the most Class I recalls, with the device name and MAUDE death and injury report totals from FDA's Total Product Life Cycle data.
+#+ tags:
+#+   - medical-device-kg
+
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?code (SAMPLE(?name) AS ?device) (COUNT(DISTINCT ?r) AS ?class_I_recalls)
+       (MAX(?deaths) AS ?maude_deaths) (MAX(?injuries) AS ?maude_injuries) WHERE {
+  ?r a ex:RecallRecord ;
+     ex:recallClassification "Class I" ;
+     ex:hasProductCode ?pc .
+  ?pc ex:productCode ?code .
+  OPTIONAL { ?pc rdfs:label ?name }
+  OPTIONAL {
+    ?t a ex:TPLCRecord ;
+       ex:hasProductCode ?pc ;
+       ex:deathReportCount ?deaths ;
+       ex:injuryReportCount ?injuries .
+  }
+}
+GROUP BY ?code
+ORDER BY DESC(?class_I_recalls)
+LIMIT 20

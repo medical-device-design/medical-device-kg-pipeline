@@ -1,0 +1,15 @@
+#+ summary: Count FDA medical device recalls by recall class (I, II, III), with how many are still open (not terminated).
+#+ tags:
+#+   - medical-device-kg
+
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+
+SELECT ?class (COUNT(?r) AS ?recalls) (SUM(?is_open) AS ?still_open) WHERE {
+  { SELECT DISTINCT ?r ?class WHERE {
+      ?r a ex:RecallRecord ;
+         ex:recallClassification ?class .
+  } }
+  BIND(IF(EXISTS { ?r ex:terminationDate ?t } || EXISTS { ?r ex:recallStatus "Terminated" }, 0, 1) AS ?is_open)
+}
+GROUP BY ?class
+ORDER BY ?class

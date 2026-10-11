@@ -1,0 +1,21 @@
+#+ summary: Find every recall whose published lot/code text quotes a given GS1 device identifier (the 14-digit UDI-DI on a barcode), with the matching UDI device record. Replace the DI in VALUES with your own.
+#+ tags:
+#+   - medical-device-kg
+
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+
+SELECT DISTINCT ?di ?recall_number ?class ?firm ?initiated ?brand ?company WHERE {
+  VALUES ?di { "10607567111117" }
+  ?r ex:quotedDeviceIdentifier ?di ;
+     ex:recallNumber ?recall_number .
+  OPTIONAL { ?r ex:recallClassification ?class }
+  OPTIONAL { ?r ex:recallingFirm ?firm }
+  OPTIONAL { ?r ex:recallInitiationDate ?initiated }
+  OPTIONAL {
+    ?r ex:mentionsDeviceIdentifier ?id .
+    ?id ex:belongsToDevice ?dev .
+    ?dev ex:brandName ?brand ;
+         ex:companyName ?company .
+  }
+}
+ORDER BY ?initiated
