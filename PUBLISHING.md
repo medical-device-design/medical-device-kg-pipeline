@@ -136,12 +136,12 @@ CI in this repository is for validating the ontology and queries, which are smal
 published was built that way, and the generated files consequently existed in exactly one
 place, on one machine, belonging to one student.
 
-### The Hofstra VMs
+### The build VMs
 
-Two Ubuntu VMs are provisioned through the DeMatteis School, administered by Alexander
-Rosenberg (`Alexander.J.Rosenberg@hofstra.edu`, x4347). Both are behind the CS VPN
-(`cs.hofstra.edu/csvpn`, OpenVPN 2.4.12) and manageable via vSphere at
-`https://vc11.cs.hofstra.edu/`.
+Two Ubuntu VMs are provisioned through the school and administered by its systems
+administrator. Both are behind the university VPN (OpenVPN 2.4.12) and manageable through
+its vSphere console. Addresses and contact details are in the team's private notes, not
+in this repository.
 
 Assignment confirmed by Roche to the team on 30 June 2026:
 
@@ -150,7 +150,7 @@ Assignment confirmed by Roche to the team on 30 June 2026:
 | `r25-vm` | <r25-vm-ip> | **NIH R25** — bmedesign.org (Ajay) | original allocation |
 | `build-vm` | <build-vm-ip> | **NSF subaward** — the KG (Prabhjot, Mustafa, Raham) | **185 GB / 172 GiB free** |
 
-**`build-vm` is the build machine.** Alex expanded it on 29 June 2026 in response
+**`build-vm` is the build machine.** The administrator expanded it on 29 June 2026 in response
 to Prabhjot's request for 150–200 GB to hold the full FDA extraction plus intermediate JSON.
 Disk is no longer a constraint. RAM and vCPU are still unconfirmed — worth asking, since the
 original VM was provisioned at 4 GB / 2 vCPU for a 96k-triple graph.
@@ -165,9 +165,9 @@ would return the same result publicly.
 Checked on Roche's machine 2026-09-07:
 
 - **OpenVPN is not installed.** This is the only blocker. Install **OpenVPN GUI 2.4.12**
-  specifically — Alex is explicit about the version — and obtain a VPN profile per
-  `cs.hofstra.edu/csvpn` (step 9 on Windows). Use your own Hofstra credentials; the h-numbers
-  quoted in the provisioning emails belong to individual students.
+  specifically — the administrator is explicit about the version — and obtain a VPN profile
+  from the administrator. Use your own university credentials. The ID numbers quoted in the
+  provisioning emails belong to individual students.
 - **SSH from PowerShell, not WSL.** Windows OpenSSH is present at
   `C:\WINDOWS\System32\OpenSSH\ssh.exe`. WSL2 here runs in NAT mode (`.wslconfig` sets memory
   and processors but not `networkingMode`), so it will **not** inherit VPN routes and SSH from
@@ -178,6 +178,6 @@ Checked on Roche's machine 2026-09-07:
 
 ### Security note
 
-The provisioning emails circulated default SSH passwords for both VMs in plaintext. Alex's
+The provisioning emails circulated default SSH passwords for both VMs in plaintext. The administrator's
 instructions require changing them at first login. **Confirm both were in fact rotated**, and
 do not forward those PDFs further.

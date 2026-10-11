@@ -21,7 +21,7 @@ Published on the NSF Proto-OKN Fabric as **`medical-device-kg`**.
   [#2535091](https://www.nsf.gov/awardsearch/show-award/?AWD_ID=2535091) (UNC-Chapel Hill)
 - **NIH/NIBIB** R25EB035522 — the education platform at https://www.bmedesign.org
 
-Hofstra University · PI: Roche C. de Guzman
+PI: Roche C. de Guzman, Ph.D. (Hofstra University)
 
 ---
 
