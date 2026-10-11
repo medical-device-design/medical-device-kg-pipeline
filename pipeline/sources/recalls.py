@@ -82,15 +82,19 @@ def transform(src, out, retrieved_at=None):
 
             pairs = [
                 ("a", "ex:RecallRecord"),
+                ("rdfs:label", common.label(f"Recall {rn}" if rn else "Recall (number pending)",
+                                            r.get("recalling_firm"))),
                 ("ex:recallNumber", common.lit(rn) if rn else None),
                 # FDA posts some reports before assigning a recall number (2026-10-10:
                 # one record, event 94520, "Not Yet Classified"). Keep it, flagged.
                 ("ex:recallNumberStatus", None if rn else common.lit("not yet assigned by FDA")),
                 ("ex:recallClassification", common.lit(r.get("classification"))),
                 ("ex:recallStatus", common.lit(r.get("status"))),   # ontology term (was ex:status)
-                ("ex:reasonForRecall", common.lit(r.get("reason_for_recall"))),
-                ("ex:recallingFirm", common.lit(r.get("recalling_firm"))),
-                ("ex:productDescription", common.lit(r.get("product_description"))),
+                # free text is whitespace-normalized: the recall database publishes the
+                # same text with different line breaks, and both land on this IRI
+                ("ex:reasonForRecall", common.lit(common.norm_text(r.get("reason_for_recall")))),
+                ("ex:recallingFirm", common.lit(common.norm_text(r.get("recalling_firm")))),
+                ("ex:productDescription", common.lit(common.norm_text(r.get("product_description")))),
                 ("ex:recallInitiationDate", common.date_lit(r.get("recall_initiation_date"))),
                 ("ex:reportDate", common.date_lit(r.get("report_date"))),
                 ("ex:centerClassificationDate", common.date_lit(r.get("center_classification_date"))),
@@ -103,15 +107,17 @@ def transform(src, out, retrieved_at=None):
                 ("ex:city", common.lit(r.get("city"))),
                 ("ex:state", common.lit(r.get("state"))),
                 ("ex:country", common.lit(r.get("country"))),
-                ("ex:address", common.lit(", ".join(x for x in (r.get("address_1"), r.get("address_2")) if x))),
+                ("ex:address", common.lit(common.norm_address(r.get("address_1"), r.get("address_2")))),
                 ("ex:postalCode", common.lit(r.get("postal_code"))),
                 ("ex:productType", common.lit(r.get("product_type"))),
             ]
+            pairs += common.implausible_year_pairs(r.get("recall_initiation_date"), "recall initiation date")
 
             # code_info (lots/serials): kept in full unless CODE_INFO_CAP is set.
             # FDA moves the overflow of long lot lists into more_code_info; it is joined
             # back so one ex:codeInfo literal holds the complete published list.
-            code = " ".join(str(x).strip() for x in (r.get("code_info"), r.get("more_code_info")) if x and str(x).strip())
+            code = common.norm_text(" ".join(str(x).strip() for x in (r.get("code_info"), r.get("more_code_info"))
+                                             if x and str(x).strip())) or ""
             pairs += common.capped_pairs("ex:codeInfo", code or None, CODE_INFO_CAP)
             # barcode path: GS1 device identifiers FDA quotes in the lot text -> UDI identifier nodes
             for di in common.gs1_dis(code):
@@ -137,7 +143,10 @@ def transform(src, out, retrieved_at=None):
             for pn in common.as_list(of.get("pma_number")):
                 pairs.append(("ex:relatedPMARecord", f"<{iri.pma(pn)}>"))
 
-            for pc in common.as_list(of.get("product_code")):
+            for raw_pc in common.as_list(of.get("product_code")):
+                pc = common.product_code(raw_pc)
+                if not pc:
+                    continue
                 pairs.append(("ex:productCode", common.lit(pc)))
                 pairs.append(("ex:hasProductCode", f"<{iri.product_code(pc)}>"))
                 hub.setdefault(pc, {
@@ -158,7 +167,9 @@ def transform(src, out, retrieved_at=None):
             d = hub[pc]
             block = [
                 ("a", "ex:ProductCode"),
-                ("rdfs:label", common.lit(d.get("label"))),
+                # rdfs:label on product codes comes from classification only (one label
+                # per node); other sources' device names are alternative labels
+                ("skos:altLabel", common.lit(d.get("label"))),
                 ("ex:productCode", common.lit(pc)),
                 ("ex:deviceClass", common.lit(d.get("device_class"))),
                 ("ex:medicalSpecialtyDescription", common.lit(d.get("specialty"))),
@@ -168,11 +179,7 @@ def transform(src, out, retrieved_at=None):
             w.block(iri.product_code(pc), block)
 
         for nf in sorted(firms):
-            w.block(iri.firm_name(nf), [
-                ("a", "ex:FirmName"),
-                ("rdfs:label", common.lit(firms[nf])),
-                ("ex:normalizedName", common.lit(nf)),
-            ])
+            w.block(iri.firm_name(nf), common.firm_name_pairs(nf, firms[nf]))
 
     st.triples = w.triples
     return st
@@ -220,6 +227,11 @@ def _selftest():
     assert 'ex:recallStatus "Ongoing"' in text and "ex:status " not in text
     assert "ex:distributedNationwide" in text                 # parser folded in
     assert f"<{iri.firm_name('MINIMED')}>" in text and "a ex:FirmName" in text
+    assert 'rdfs:label "Recall Z-0001-2025: MiniMed"' in text            # records are labelled
+    assert 'rdfs:label "MINIMED"' in text and 'skos:altLabel "MiniMed"' in text
+    assert 'skos:altLabel "Pump, infusion, insulin"' in text             # hub name is secondary
+    assert text.count("rdfs:label") == 3                                  # 2 records + 1 firm; none on the hub
+    assert 'rdfs:label "Recall (number pending)"' in text
     print(f"recalls.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
 

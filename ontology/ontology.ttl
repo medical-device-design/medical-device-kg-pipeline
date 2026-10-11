@@ -805,3 +805,15 @@ ex:summaryUrl             a owl:DatatypeProperty ; rdfs:domain ex:DeviceFDARecor
 #   sudokn: <http://asu.edu/semantics/SUDOKN/>       NAICSClassifier, hasNAICSClassifier
 #   skos: exactMatch/closeMatch -- reserved for future GMDN and Manufacturer<->Labeler links
 # =============================================================================
+
+# ---------------------------------------------------------------------------
+# Added 2026-10-11 (v0.0.6): data-quality and source-text terms from the
+# pre-release query tests (docs/CHANGES_2026-10-11.md).
+# ---------------------------------------------------------------------------
+ex:dataQualityNote a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "data quality note" ;
+    rdfs:comment "A known problem with a value as FDA published it, e.g. an implausible year (0012 for 2012). The value itself is kept unchanged." .
+
+ex:reportedProductCodeText a owl:DatatypeProperty ; rdfs:domain ex:MAUDEReport ; rdfs:range xsd:string ;
+    rdfs:label "reported product code text" ;
+    rdfs:comment "Product-code text typed by a MAUDE reporter that is not a three-letter FDA product code. Kept as text; no ex:ProductCode node is minted for it." .

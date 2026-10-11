@@ -76,7 +76,7 @@ def transform(src, out, retrieved_at=None):
             retrieved_at = None
 
     st = base.Stats(source=NAME)
-    events, firms = {}, {}
+    events, firms, hub_codes = {}, {}, set()
     with base.TurtleWriter(out) as w:
         for r in _iter_records(src):
             rn = str(r.get("product_res_number") or "").strip()
@@ -86,13 +86,15 @@ def transform(src, out, retrieved_at=None):
             of = r.get("openfda") or {}
             pairs = [
                 ("a", "ex:RecallRecord"),
+                ("rdfs:label", common.label(f"Recall {rn}", r.get("recalling_firm"))),
                 ("ex:recallNumber", common.lit(rn)),
                 ("ex:recallStatus", common.lit(r.get("recall_status"))),
-                ("ex:reasonForRecall", common.lit(r.get("reason_for_recall"))),
+                # whitespace-normalized so the text matches the enforcement feed's copy
+                ("ex:reasonForRecall", common.lit(common.norm_text(r.get("reason_for_recall")))),
                 ("ex:rootCauseDescription", common.lit(r.get("root_cause_description"))),
-                ("ex:recallAction", common.lit(r.get("action"))),
-                ("ex:recallingFirm", common.lit(r.get("recalling_firm"))),
-                ("ex:productDescription", common.lit(r.get("product_description"))),
+                ("ex:recallAction", common.lit(common.norm_text(r.get("action")))),
+                ("ex:recallingFirm", common.lit(common.norm_text(r.get("recalling_firm")))),
+                ("ex:productDescription", common.lit(common.norm_text(r.get("product_description")))),
                 ("ex:productQuantity", common.lit(r.get("product_quantity"))),
                 ("ex:distributionPattern", common.lit(r.get("distribution_pattern"))),
                 # same predicate as recalls.py so one query covers both sources
@@ -105,12 +107,13 @@ def transform(src, out, retrieved_at=None):
                 ("ex:state", common.lit(r.get("state"))),
                 ("ex:postalCode", common.lit(r.get("postal_code"))),
                 ("ex:country", common.lit(r.get("country"))),
-                ("ex:address", common.lit(", ".join(x for x in (r.get("address_1"), r.get("address_2")) if x))),
+                ("ex:address", common.lit(common.norm_address(r.get("address_1"), r.get("address_2")))),
                 ("ex:eventDateCreated", common.date_lit(r.get("event_date_created"))),
                 # additional_info_contact names a person -> deliberately not ingested
             ]
+            pairs += common.implausible_year_pairs(r.get("event_date_initiated"), "recall initiation date")
             # code_info (lots/serials): kept in full unless CODE_INFO_CAP is set
-            pairs += common.capped_pairs("ex:codeInfo", r.get("code_info"), CODE_INFO_CAP)
+            pairs += common.capped_pairs("ex:codeInfo", common.norm_text(r.get("code_info")), CODE_INFO_CAP)
             # barcode path: GS1 device identifiers FDA quotes in the lot text -> UDI identifier nodes
             for di in common.gs1_dis(r.get("code_info")):
                 pairs.append(("ex:quotedDeviceIdentifier", common.lit(di)))
@@ -135,6 +138,7 @@ def transform(src, out, retrieved_at=None):
             pcs |= {clean_product_code(x) for x in common.as_list(of.get("product_code"))}
             for pc in sorted(p for p in pcs if p):
                 pairs.append(("ex:hasProductCode", f"<{iri.product_code(pc)}>"))
+                hub_codes.add(pc)
             for kn in common.as_list(r.get("k_numbers")):
                 pairs.append(("ex:relatedK510Record", f"<{iri.k510(kn)}>"))
             for pn in common.as_list(r.get("pma_numbers")):
@@ -149,6 +153,7 @@ def transform(src, out, retrieved_at=None):
             started, status = events[ev]
             w.block(iri.recall_event(ev), [
                 ("a", "ex:RecallEvent"),
+                ("rdfs:label", common.lit(f"Recall event {ev}")),
                 ("ex:recallEventNumber", common.lit(ev)),
                 ("ex:recallInitiationDate", common.date_lit(started)),
                 ("ex:recallStatus", common.lit(status)),
@@ -156,15 +161,12 @@ def transform(src, out, retrieved_at=None):
         # Name node -> FEI node with an exact, reified identity mapping
         for nf in sorted(firms):
             raw, fei = firms[nf]
-            w.block(iri.firm_name(nf), [
-                ("a", "ex:FirmName"),
-                ("rdfs:label", common.lit(raw)),
-                ("ex:normalizedName", common.lit(nf)),
-            ])
+            w.block(iri.firm_name(nf), common.firm_name_pairs(nf, raw))
             if fei:
                 subj, obj = iri.firm_name(nf), iri.manufacturer(fei=fei)
                 w.block(iri.identity_mapping(subj, obj, "shared-fei"), [
                     ("a", "ex:IdentityMapping"),
+                    ("rdfs:label", common.lit(f"{nf} = FEI {fei}")),
                     ("ex:mappingSubject", f"<{subj}>"),
                     ("ex:mappingObject", f"<{obj}>"),
                     ("ex:mappingMethod", common.lit("shared-fei")),
@@ -173,6 +175,10 @@ def transform(src, out, retrieved_at=None):
                     ("ex:mappingEvidence", common.lit(f"FEI {fei} on FDA recall record")),
                     ("ex:mappingDate", common.date_lit(retrieved_at)),
                 ])
+        # minimal typed hub nodes, so every product-code link reaches a node that
+        # carries its code (classification adds the name and class where FDA lists it)
+        for pc in sorted(hub_codes):
+            w.block(iri.product_code(pc), [("a", "ex:ProductCode"), ("ex:productCode", common.lit(pc))])
 
     st.triples = w.triples
     return st
@@ -223,6 +229,10 @@ def _selftest():
     assert "a ex:IdentityMapping" in text and 'ex:mappingMethod "shared-fei"' in text
     assert "sameAs" not in text
     assert clean_product_code("IZL--") == "IZL" and clean_product_code("") is None
+    assert 'rdfs:label "Recall Z-0001-04: Sedecal USA, Inc"' in text
+    assert 'rdfs:label "Recall event 27549"' in text
+    assert f"<{iri.product_code('IZL')}>\n    a ex:ProductCode" in text   # hub stub, no dangling link
+    assert text.count("a ex:FirmName") == 1 and "skos:altLabel" in text
     print(f"recall_db.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
 

@@ -68,13 +68,15 @@ def transform(src, out, retrieved_at=None):
                 continue
             supp = str(r.get("supplement_number") or "").strip()
             of = r.get("openfda") or {}
-            pc = str(r.get("product_code") or _first(of.get("product_code")) or "").strip()
+            pc = common.product_code(r.get("product_code") or _first(of.get("product_code")))
             reg = _first(of.get("regulation_number"))
             subject = iri.pma(pma_no, supp) if supp else iri.pma(pma_no)
             rid = f"{pma_no}-{supp}" if supp else pma_no
 
             pairs = [
                 ("a", "ex:PMARecord"),
+                ("rdfs:label", common.label(f"{pma_no}/{supp}" if supp else pma_no,
+                                            r.get("trade_name") or r.get("generic_name"))),
                 ("ex:pmaNumber", common.lit(pma_no)),
                 ("ex:supplementNumber", common.lit(supp) if supp else None),
                 ("ex:applicant", common.lit(r.get("applicant"))),
@@ -94,7 +96,7 @@ def transform(src, out, retrieved_at=None):
                 ("ex:city", common.lit(r.get("city"))),
                 ("ex:state", common.lit(r.get("state"))),
                 ("ex:postalCode", common.lit(r.get("zip"))),
-                ("ex:address", common.lit(", ".join(x for x in (r.get("street_1"), r.get("street_2")) if x))),
+                ("ex:address", common.lit(common.norm_address(r.get("street_1"), r.get("street_2")))),
                 ("ex:fedRegNoticeDate", common.date_lit(r.get("fed_reg_notice_date"))),
             ]
             if supp:
@@ -121,7 +123,7 @@ def transform(src, out, retrieved_at=None):
             d = hub[pc]
             block = [
                 ("a", "ex:ProductCode"),
-                ("rdfs:label", common.lit(d.get("label"))),
+                ("skos:altLabel", common.lit(d.get("label"))),      # rdfs:label comes from classification
                 ("ex:productCode", common.lit(pc)),
                 ("ex:deviceClass", common.lit(d.get("device_class"))),
                 ("ex:medicalSpecialtyDescription", common.lit(d.get("specialty"))),
@@ -172,6 +174,7 @@ def _selftest():
     assert f"<{iri.product_code('LWR')}>" in text
     assert text.count("a ex:ProductCode") == 1                # hub deduped
     assert 'ex:supplementNumber "S001"' in text
+    assert 'rdfs:label "P010001: HeartValve X"' in text and 'rdfs:label "P010001/S001: HeartValve X"' in text
     assert "ex:sourceDataset \"device/pma\"" in text
     print(f"pma.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
