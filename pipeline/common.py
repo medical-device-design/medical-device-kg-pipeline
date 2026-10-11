@@ -178,6 +178,94 @@ def as_list(value):
     return [p.strip() for p in str(value).split(";") if p.strip()]
 
 
+# ---------------------------------------------------------------------------
+# Value hygiene shared by several sources (query-test findings, 2026-10-11)
+# ---------------------------------------------------------------------------
+_PRODUCT_CODE = re.compile(r"^[A-Za-z]{3}$")
+
+
+def product_code(value):
+    """An FDA product code is exactly three letters. Returns it upper-cased, or None
+    for reporter-typed noise ("269", "N/A", "F T") so no junk hub node is minted.
+    Callers keep the raw text in a literal when they need it."""
+    s = str(value or "").strip()
+    return s.upper() if _PRODUCT_CODE.match(s) else None
+
+
+_WS = re.compile(r"\s+")
+
+
+def norm_text(value):
+    """Collapse runs of whitespace (including line breaks) to one space. Two FDA feeds
+    publish the same recall text with different line breaks; normalizing makes the
+    literals identical, so the record carries one value instead of two."""
+    if value is None:
+        return None
+    s = _WS.sub(" ", str(value)).strip()
+    return s or None
+
+
+_NA_PART = re.compile(r"^(n/?a|none|null|-+)$", re.I)
+
+
+def norm_address(*parts):
+    """Join address lines, dropping placeholder parts such as "N/A"."""
+    keep = []
+    for p in parts:
+        s = norm_text(p)
+        if s and not _NA_PART.match(s):
+            keep.append(s)
+    return ", ".join(keep) or None
+
+
+def label(*parts, sep=": "):
+    """A human-readable rdfs:label from the non-empty parts, e.g. "K230972: Ingenia"."""
+    vals = [norm_text(p) for p in parts]
+    return lit(sep.join(v for v in vals if v)) if any(vals) else None
+
+
+def firm_name_pairs(normalized, raw=None):
+    """The FirmName block. Several sources write the same node, so its one rdfs:label is
+    the normalized name (identical everywhere); each source's spelling is an altLabel."""
+    raw_s = norm_text(raw)
+    return [
+        ("a", "ex:FirmName"),
+        ("rdfs:label", lit(normalized)),
+        ("skos:altLabel", lit(raw_s) if raw_s and raw_s != normalized else None),
+        ("ex:normalizedName", lit(normalized)),
+    ]
+
+
+# MAUDE patient outcome: older reports carry FDA's one-letter codes, newer ones the words.
+OUTCOME_CODES = {
+    "D": "Death", "L": "Life Threatening", "H": "Hospitalization", "S": "Disability",
+    "C": "Congenital Anomaly", "R": "Required Intervention", "O": "Other",
+    "U": "Unknown", "I": "Invalid Data", "N": "Not Applicable", "*": "No Information",
+}
+
+
+def outcome_label(value):
+    """Map a one-letter MAUDE outcome code to FDA's wording; pass words through."""
+    s = str(value or "").strip()
+    if not s:
+        return None
+    return OUTCOME_CODES.get(s.upper(), s) if len(s) == 1 else s
+
+
+def implausible_year_pairs(date_value, what, lo=1976, hi=None):
+    """[(ex:dataQualityNote, "...")] when a date's year is outside [lo, hi] -- FDA typos
+    such as year 0012 for 2012. The date itself is kept as published."""
+    s = str(date_value or "").strip()
+    m = re.match(r"^(\d{4})", s.replace("-", "")) if s else None
+    if not m:
+        return []
+    y = int(m.group(1))
+    hi = hi or datetime.utcnow().year + 1
+    if lo <= y <= hi:
+        return []
+    return [("ex:dataQualityNote", lit(f"{what}: year {m.group(1)} is implausible as published by FDA"))]
+
+
 _GTIN14 = re.compile(r"(?<!\d)(\d{14})(?!\d)")
 
 
@@ -316,6 +404,20 @@ def _selftest():
     s = "UDI-DI 10197344133253 Lot EP250618; (case) 20888277407517 serial 12345678901234 10197344133253"
     assert gs1_dis(s) == ["10197344133253", "20888277407517"], gs1_dis(s)
     assert gs1_dis(None) == [] and gs1_dis("lot 123456789012345") == []
+
+    # --- value hygiene ------------------------------------------------------
+    assert product_code("frn") == "FRN" and product_code(" DSP ") == "DSP"
+    assert product_code("269") is None and product_code("N/A") is None and product_code("F T") is None
+    assert norm_text("a\n\n b  c ") == "a b c" and norm_text("  ") is None
+    assert norm_address("1300 Macarthur Blvd", "N/A") == "1300 Macarthur Blvd"
+    assert norm_address("3 Lakes Dr", None) == norm_address("3 Lakes Dr", "n/a")
+    assert label("K230972", "Ingenia\nElition") == '"K230972: Ingenia Elition"'
+    assert label(None, "") is None
+    assert outcome_label("R") == "Required Intervention" and outcome_label("Death") == "Death"
+    assert outcome_label("h") == "Hospitalization" and outcome_label("") is None
+    assert implausible_year_pairs("0012-05-01", "recall initiation date")
+    assert implausible_year_pairs("1930-01-01", "x") and not implausible_year_pairs("2012-05-01", "x")
+    assert not implausible_year_pairs(None, "x")
 
     print("common.py self-test PASSED.")
 

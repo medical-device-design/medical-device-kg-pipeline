@@ -169,8 +169,9 @@ def today():
 #  Turtle writing -- deterministic, ex: bound to iri.NS
 # ===========================================================================
 def turtle_header(extra=None):
-    """Standard prefixes plus ex: -> iri.NS (the vocabulary namespace)."""
-    base = {"ex": iri.NS}
+    """Standard prefixes plus ex: -> iri.NS (the vocabulary namespace) and skos:
+    (used for secondary names: skos:altLabel, skos:notation)."""
+    base = {"ex": iri.NS, "skos": "http://www.w3.org/2004/02/skos/core#"}
     if extra:
         base.update(extra)
     return common.prefixes(base) + "\n"
