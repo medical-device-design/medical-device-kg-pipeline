@@ -1,9 +1,9 @@
 # lakeFS release watch: medical-device-kg
 
-**Status:** WAITING: `stable_v0_0_5` does not exist yet. The newest stable branch is `stable_v0_0_4`.
+**Status:** READY: `stable_v0_0_5` exists. The data owner can now create the release tag on it (this script never tags).
 
 - `main` head: `6f0eedb2b70f`
-- Stable branches: stable_v0_0_1, stable_v0_0_2, stable_v0_0_3, stable_v0_0_4
+- Stable branches: stable_v0_0_1, stable_v0_0_2, stable_v0_0_3, stable_v0_0_4, stable_v0_0_5
 - Tags: v0.0.1, v0.0.2, v0.0.3, v0.0.4
 
 ## Last 5 lakeFS action runs
@@ -19,4 +19,4 @@
 A failed post-merge run, or no stable branch long after a merge, means the conversion
 needs attention from RENCI.
 
-Changed: 2026-10-11T01:41Z
+Changed: 2026-10-11T08:17Z
