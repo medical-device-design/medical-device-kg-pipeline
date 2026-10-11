@@ -178,6 +178,22 @@ def as_list(value):
     return [p.strip() for p in str(value).split(";") if p.strip()]
 
 
+_GTIN14 = re.compile(r"(?<!\d)(\d{14})(?!\d)")
+
+
+def gs1_dis(text):
+    """GS1 device identifiers (14-digit GTINs with a valid check digit) quoted in free
+    text such as a recall's code_info. Order kept, duplicates dropped. The check digit
+    rejects most lot or serial numbers that happen to be 14 digits long."""
+    out = []
+    for g in _GTIN14.findall(str(text or "")):
+        body, check = g[:13], int(g[13])
+        total = sum(int(d) * (3 if i % 2 == 0 else 1) for i, d in enumerate(body))
+        if (10 - total % 10) % 10 == check and g not in out:
+            out.append(g)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Provenance -- every record must trace to its FDA source
 # ---------------------------------------------------------------------------
@@ -295,6 +311,11 @@ def _selftest():
     k = write_block(buf, "<s>", [("ex:a", '"1"'), ("ex:b", None), ("ex:c", '"3"')])
     assert k == 2
     assert buf.getvalue() == '<s>\n    ex:a "1" ;\n    ex:c "3" .\n\n', repr(buf.getvalue())
+
+    # --- gs1_dis: GTIN-14 check digit, order kept, duplicates dropped -----
+    s = "UDI-DI 10197344133253 Lot EP250618; (case) 20888277407517 serial 12345678901234 10197344133253"
+    assert gs1_dis(s) == ["10197344133253", "20888277407517"], gs1_dis(s)
+    assert gs1_dis(None) == [] and gs1_dis("lot 123456789012345") == []
 
     print("common.py self-test PASSED.")
 

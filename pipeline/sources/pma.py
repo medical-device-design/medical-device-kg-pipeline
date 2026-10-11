@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 pma.py -- PMA approvals + supplements (openFDA device/pma) -> RDF, on the contract.
 
@@ -93,6 +93,9 @@ def transform(src, out, retrieved_at=None):
                 ("ex:docketNumber", common.lit(r.get("docket_number"))),
                 ("ex:city", common.lit(r.get("city"))),
                 ("ex:state", common.lit(r.get("state"))),
+                ("ex:postalCode", common.lit(r.get("zip"))),
+                ("ex:address", common.lit(", ".join(x for x in (r.get("street_1"), r.get("street_2")) if x))),
+                ("ex:fedRegNoticeDate", common.date_lit(r.get("fed_reg_notice_date"))),
             ]
             if supp:
                 pairs.append(("ex:supplementOf", f"<{iri.pma(pma_no)}>"))

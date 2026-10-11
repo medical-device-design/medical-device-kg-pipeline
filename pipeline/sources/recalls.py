@@ -49,6 +49,17 @@ def _iter_records(src):
     yield from base.iter_openfda_results(src)
 
 
+def pending_key(r):
+    """Stable key for a report FDA posted before assigning a recall number:
+    'pending-<event id>-<8 hex of the product description>'. None if no event id."""
+    import hashlib
+    ev = str(r.get("event_id") or "").strip()
+    if not ev:
+        return None
+    h = hashlib.sha1(str(r.get("product_description") or "").encode("utf-8")).hexdigest()[:8]
+    return f"pending-{ev}-{h}"
+
+
 def transform(src, out, retrieved_at=None):
     man = Path(src) / "manifest.json"
     if retrieved_at is None and man.exists():
@@ -63,14 +74,18 @@ def transform(src, out, retrieved_at=None):
     with base.TurtleWriter(out) as w:
         for r in _iter_records(src):
             rn = str(r.get("recall_number") or "").strip()
-            if not rn:
+            key = rn or pending_key(r)
+            if not key:
                 st.skipped += 1
                 continue
             of = r.get("openfda") or {}
 
             pairs = [
                 ("a", "ex:RecallRecord"),
-                ("ex:recallNumber", common.lit(rn)),
+                ("ex:recallNumber", common.lit(rn) if rn else None),
+                # FDA posts some reports before assigning a recall number (2026-10-10:
+                # one record, event 94520, "Not Yet Classified"). Keep it, flagged.
+                ("ex:recallNumberStatus", None if rn else common.lit("not yet assigned by FDA")),
                 ("ex:recallClassification", common.lit(r.get("classification"))),
                 ("ex:recallStatus", common.lit(r.get("status"))),   # ontology term (was ex:status)
                 ("ex:reasonForRecall", common.lit(r.get("reason_for_recall"))),
@@ -88,10 +103,20 @@ def transform(src, out, retrieved_at=None):
                 ("ex:city", common.lit(r.get("city"))),
                 ("ex:state", common.lit(r.get("state"))),
                 ("ex:country", common.lit(r.get("country"))),
+                ("ex:address", common.lit(", ".join(x for x in (r.get("address_1"), r.get("address_2")) if x))),
+                ("ex:postalCode", common.lit(r.get("postal_code"))),
+                ("ex:productType", common.lit(r.get("product_type"))),
             ]
 
-            # code_info (lots/serials): kept in full unless CODE_INFO_CAP is set
-            pairs += common.capped_pairs("ex:codeInfo", r.get("code_info"), CODE_INFO_CAP)
+            # code_info (lots/serials): kept in full unless CODE_INFO_CAP is set.
+            # FDA moves the overflow of long lot lists into more_code_info; it is joined
+            # back so one ex:codeInfo literal holds the complete published list.
+            code = " ".join(str(x).strip() for x in (r.get("code_info"), r.get("more_code_info")) if x and str(x).strip())
+            pairs += common.capped_pairs("ex:codeInfo", code or None, CODE_INFO_CAP)
+            # barcode path: GS1 device identifiers FDA quotes in the lot text -> UDI identifier nodes
+            for di in common.gs1_dis(code):
+                pairs.append(("ex:quotedDeviceIdentifier", common.lit(di)))
+                pairs.append(("ex:mentionsDeviceIdentifier", f"<{iri.udi_identifier('GS1', di)}>"))
             # structured geography from the free-text field (task: distribution parser)
             pairs += distribution_pairs(r.get("distribution_pattern"))
 
@@ -122,11 +147,11 @@ def transform(src, out, retrieved_at=None):
                     "specialty": (common.as_list(of.get("medical_specialty_description")) or [None])[0],
                 })
 
-            for pred, obj in common.provenance(DATASET, rn,
+            for pred, obj in common.provenance(DATASET, key,
                                                source_url=SOURCE_URL, retrieved_at=retrieved_at):
                 pairs.append((pred, obj))
 
-            w.block(iri.recall(rn), pairs)
+            w.block(iri.recall(key), pairs)
             st.records += 1
 
         for pc in sorted(hub):
@@ -170,7 +195,9 @@ def _selftest():
          "openfda": {"product_code": ["OYC"], "k_number": ["K180179"],
                      "pma_number": ["P010001"], "device_class": ["2"],
                      "device_name": ["Pump, infusion, insulin"]}},
-        {"reason_for_recall": "no number"},   # missing recall_number -> skipped
+        {"reason_for_recall": "no number"},   # missing recall_number and event id -> skipped
+        {"event_id": "94520", "classification": "Not Yet Classified", "recall_number": "",
+         "product_description": "SYR 30ML L/L", "reason_for_recall": "Out of 510(k) range"},  # pending
     ]}
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "sample.json").write_text(json.dumps(sample), encoding="utf-8")
@@ -180,8 +207,10 @@ def _selftest():
         st = transform(d, out)
         text = out.read_text(encoding="utf-8")
 
-    assert st.records == 1 and st.skipped == 1, (st.records, st.skipped)
+    assert st.records == 2 and st.skipped == 1, (st.records, st.skipped)
     assert f"<{iri.recall('Z-0001-2025')}>" in text
+    pk = pending_key({"event_id": "94520", "product_description": "SYR 30ML L/L"})
+    assert f"<{iri.recall(pk)}>" in text and 'ex:recallNumberStatus "not yet assigned by FDA"' in text
     assert 'ex:recallClassification "Class II"' in text
     assert '"2025-01-15"^^xsd:date' in text
     assert f"<{iri.k510('K180179')}>" in text                 # cross-link to 510(k)

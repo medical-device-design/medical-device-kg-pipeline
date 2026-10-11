@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-cfr.py -- 21 CFR device regulations (parts 800-898 and 1000-1050) -> RDF.
+cfr.py -- 21 CFR (every part of title 21) -> RDF. Device and radiological-health parts
+(800-898, 1000-1050) carry ex:deviceRegulationPart true, so device queries can stay scoped.
 
 Source: the govinfo eCFR BULK XML for title 21, regenerated daily
     https://www.govinfo.gov/bulkdata/ECFR/title-21/ECFR-title21.xml   (~22 MB)
@@ -39,19 +40,26 @@ NAME = "cfr"
 DATASET = "ecfr/title-21"
 BULK_URL = "https://www.govinfo.gov/bulkdata/ECFR/title-21/ECFR-title21.xml"
 SECTION_URL = "https://www.ecfr.gov/current/title-21/section-{}"
-PART_RANGES = ((800, 898), (1000, 1050))
+PART_RANGES = ((800, 898), (1000, 1050))      # the device and radiological-health parts
+ALL_PARTS = True          # PI decision 2026-10-10: ingest every part of title 21; device parts are flagged
 _SEC_NUM = re.compile(r"(\d+\.\d+[a-z]?)")
 _CLASS = re.compile(r"\bClass\s+(III|II|I)\b")
 _ROMAN = {"I": "1", "II": "2", "III": "3"}
 MAX_TEXT = None           # full regulation text (PI decision 2026-10-09: no truncation)
 
 
-def in_scope(part):
+def is_device_part(part):
     try:
         p = int(part)
     except (TypeError, ValueError):
         return False
     return any(lo <= p <= hi for lo, hi in PART_RANGES)
+
+
+def in_scope(part):
+    if ALL_PARTS:
+        return bool(str(part or "").strip())
+    return is_device_part(part)
 
 
 def fetch(dest):
@@ -114,10 +122,12 @@ def transform(src, out, retrieved_at=None):
     st = base.Stats(source=NAME)
     with base.TurtleWriter(out) as w:
         for part, heading, secs in iter_parts(xml_path):
+            dev = '"true"^^xsd:boolean' if is_device_part(part) else '"false"^^xsd:boolean'
             w.block(iri.cfr_part(part), [
                 ("a", "ex:CfrPart"),
                 ("rdfs:label", common.lit(re.sub(r"^PART\s+\d+\s*[—-]*\s*", "", heading, flags=re.I) or heading)),
                 ("ex:cfrPartNumber", common.lit(part)),
+                ("ex:deviceRegulationPart", dev),
             ])
             for s in secs:
                 if s["reserved"]:
@@ -179,8 +189,12 @@ def _selftest():
         base.Manifest(source=NAME, dataset=DATASET, retrieved_at="2026-10-09", files=[]).write(d / "manifest.json")
         st = transform(d, d / "cfr.ttl")
         ttl = (d / "cfr.ttl").read_text(encoding="utf-8")
-    assert st.records == 2 and st.skipped == 1, st                  # reserved skipped, food part ignored
-    assert f"<{iri.cfr_section('878.3530')}>" in ttl and "101_1" not in ttl
+    assert st.records == 3 and st.skipped == 1, st                  # reserved skipped; food part now kept
+    assert f"<{iri.cfr_section('878.3530')}>" in ttl and f"<{iri.cfr_section('101.1')}>" in ttl
+    food = ttl.split(f"<{iri.cfr_part('101')}>\n", 1)[1].split("\n\n")[0]
+    dev = ttl.split(f"<{iri.cfr_part('878')}>\n", 1)[1].split("\n\n")[0]
+    assert 'ex:deviceRegulationPart "false"^^xsd:boolean' in food and '"true"^^xsd:boolean' in dev
+    assert f"<{iri.regulation('101.1')}>" not in ttl                 # no RegulationNumber without identification/class
     assert 'ex:regulatoryClass "3"' in ttl
     assert 'ex:regulatoryClass "1"' in ttl and 'ex:regulatoryClass "2"' in ttl   # mixed-class section
     assert f"ex:hasCFRSection <{iri.cfr_section('878.4040')}>" in ttl
