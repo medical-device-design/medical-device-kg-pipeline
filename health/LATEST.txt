@@ -1,6 +1,6 @@
 ############################################################
 # medical-device-kg VM health  --  Layer 2
-# host: build-vm   user: <user>   date_utc: 2026-10-05T10:30:01Z
+# host: build-vm   user: <user>   date_utc: 2026-10-12T10:30:01Z
 # MDKG: /srv/medical-device-kg
 ############################################################
 
@@ -14,17 +14,17 @@
 
 == 2. disk ==
 Filesystem      Size  Used Avail Use% Mounted on
-/dev/sda3       197G   29G  160G  16% /
-   PASS disk 16% used on /srv/medical-device-kg
+/dev/sda3       197G  170G   19G  91% /
+   FAIL disk 91% used on /srv/medical-device-kg
    tree sizes:
-     1.8M	/srv/medical-device-kg/repo
+     3.3M	/srv/medical-device-kg/repo
      37M	/srv/medical-device-kg/downloads
      1.6G	/srv/medical-device-kg/out
      40M	/srv/medical-device-kg/nstest
 
 == 3. repo (git) ==
    PASS repo at /srv/medical-device-kg/repo  branch=main  head=14ab1c1
-   PASS up to date with origin/main
+   WARN behind origin by 43 commit(s) -- run: git -C /srv/medical-device-kg/repo pull
    PASS working tree clean
 
 == 4. structure lint ==
@@ -55,7 +55,7 @@ Filesystem      Size  Used Avail Use% Mounted on
 
 == 7. mdkg-check (outstanding items) ==
      ===================================================================
-      Medical Device KG — structure check   2026-10-05 06:30   build-vm
+      Medical Device KG — structure check   2026-10-12 06:30   build-vm
      ===================================================================
      
      [1] Shared area exists and is group-owned
@@ -71,13 +71,14 @@ Filesystem      Size  Used Avail Use% Mounted on
        ok no GraphDB data under a home directory
      
      [5] Credentials are not world-readable
-       ! <credentials file> not placed yet (lakeFS publishing will not work until it is)
+       ! <credentials file> is mode 600, expected 640
+       ok <credentials file> present (mode 600)
      
      ===================================================================
       1 item(s) need attention. See WORKFLOW.md.
      ===================================================================
 
 ############################################################
-# SUMMARY: PASS=12  WARN=3  FAIL=0
-# STATUS: WARN
+# SUMMARY: PASS=10  WARN=4  FAIL=1
+# STATUS: FAIL -- see items above
 ############################################################
