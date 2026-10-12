@@ -8,7 +8,7 @@ abstract: >-
   records, published on the NSF Proto-OKN Fabric to support evidence-informed
   medical device design.
 type: dataset
-license: CC-BY-4.0
+license: CC0-1.0
 url: "https://registry.okn.us/registry/kgs/medical-device-kg/"
 repository-code: "https://github.com/medical-device-design/medical-device-kg"
 identifiers:
