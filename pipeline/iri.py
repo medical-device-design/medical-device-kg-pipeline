@@ -380,6 +380,91 @@ def storage_condition(device_record_key, index):
     return _instance("udi", _verbatim(device_record_key), "storage", str(int(index)))
 
 
+# ---- v0.0.7: the rest of FDA's Medical Device Databases page --------------
+def asr_report(report_year, line):
+    """An Alternative Summary Report row (1999-2019). FDA's ASR files are frozen and
+    carry no unique row key (373 rows repeat exactly), so the key is the yearly file
+    plus the 1-based data line, which never changes for a closed program.
+        asr_report(2010, 15) -> .../id/asr-report/2010/15"""
+    y = str(report_year).strip()
+    if not (len(y) == 4 and y.isdigit()):
+        raise ValueError(f"asr_report() needs a 4-digit file year, got {report_year!r}")
+    return _instance("asr-report", y, str(int(line)))
+
+
+def asr_exemption(number):
+    """An ASR exemption (the FDA approval that allowed summary reporting).
+        asr_exemption('1997002') -> .../id/asr-exemption/1997002"""
+    return _instance("asr-exemption", slug(number))
+
+
+def legacy_mdr(access_number, ordinal=1):
+    """A Device Experience Network (DEN) report, 1984-1997. Some access numbers
+    occur twice (a PRELIMINARY and a FINAL report); the second and later rows of
+    the same number take an ordinal suffix in file order.
+        legacy_mdr('M177985')    -> .../id/legacy-mdr/m177985
+        legacy_mdr('M409885', 2) -> .../id/legacy-mdr/m409885_2"""
+    key = slug(access_number)
+    return _instance("legacy-mdr", key if int(ordinal) <= 1 else f"{key}_{int(ordinal)}")
+
+
+def legacy_mdr_manufacturer(name_code):
+    """A manufacturer as coded in the DEN files (8-character FDA name code), which
+    carries that firm's standard disclaimer.
+        legacy_mdr_manufacturer('EDWACVS') -> .../id/legacy-mdr-manufacturer/edwacvs"""
+    return _instance("legacy-mdr-manufacturer", slug(name_code))
+
+
+def post_approval_study(application_number, study_number):
+    """A Post-Approval Study (PAS) under a PMA or HDE.
+        post_approval_study('P160030', 'PAS001') -> .../id/post-approval-study/p160030/pas001"""
+    return _instance("post-approval-study", slug(application_number), slug(study_number))
+
+
+def pma_memo(pma_number, supplement):
+    """A 180-day PMA supplement summary review memo (design change).
+        pma_memo('P020056', 'S054') -> .../id/pma-memo/p020056/s054"""
+    return _instance("pma-memo", slug(pma_number), slug(supplement))
+
+
+def medsun_report(report_id):
+    """A MedSun report (medsun_details.cfm?id=...).
+        medsun_report('104712') -> .../id/medsun-report/104712"""
+    return _instance("medsun-report", slug(report_id))
+
+
+def radiation_product_classification(code):
+    """A radiation-emitting electronic product code record (cfPCD_rh). The 3-letter
+    code also lands on the shared product_code() hub.
+        radiation_product_classification('IYE') -> .../id/radiation-product-classification/iye"""
+    return _instance("radiation-product-classification", slug(code))
+
+
+def radiation_corrective_action(key):
+    """A radiation-emitting product corrective action / recall (rh_res.cfm).
+        radiation_corrective_action('1234') -> .../id/radiation-corrective-action/1234"""
+    return _instance("radiation-corrective-action", slug(key))
+
+
+def export_certificate(certificate_number):
+    """A CDRH export certificate (CECV).
+        export_certificate('1234-2026') -> .../id/export-certificate/1234_2026"""
+    return _instance("export-certificate", slug(certificate_number))
+
+
+def advisory_meeting(key):
+    """A CDRH advisory committee / panel meeting (archive to 2008).
+        advisory_meeting('1234') -> .../id/advisory-meeting/1234"""
+    return _instance("advisory-meeting", slug(key))
+
+
+def fda_tplc(product_code_value):
+    """FDA's own TPLC report for a product code (tplc.cfm), kept apart from our
+    MAUDE-derived tplc() aggregate so the two can be compared.
+        fda_tplc('FRN') -> .../id/fda-tplc/frn"""
+    return _instance("fda-tplc", slug(product_code_value))
+
+
 # ===========================================================================
 #  SELF-TEST -- pins every minter against the layout verified on the live
 #  endpoint (2026-09-07). Run `python3 iri.py`; a failure means an IRI drifted
@@ -435,6 +520,19 @@ def _selftest():
         gmdn("35304"):                       "gmdn/35304",
         labeler("123456789"):                "labeler/123456789",
         storage_condition("abc-1", 0):       "udi/abc-1/storage/0",
+        asr_report(2010, 15):                "asr-report/2010/15",
+        asr_exemption("1997002"):            "asr-exemption/1997002",
+        legacy_mdr("M177985"):               "legacy-mdr/m177985",
+        legacy_mdr("M409885", 2):            "legacy-mdr/m409885_2",
+        legacy_mdr_manufacturer("EDWACVS"):  "legacy-mdr-manufacturer/edwacvs",
+        post_approval_study("P160030", "PAS001"): "post-approval-study/p160030/pas001",
+        pma_memo("P020056", "S054"):         "pma-memo/p020056/s054",
+        medsun_report("104712"):             "medsun-report/104712",
+        radiation_product_classification("IYE"): "radiation-product-classification/iye",
+        radiation_corrective_action("1234"): "radiation-corrective-action/1234",
+        export_certificate("1234-2026"):     "export-certificate/1234_2026",
+        advisory_meeting("1234"):            "advisory-meeting/1234",
+        fda_tplc("FRN"):                     "fda-tplc/frn",
     }
     for got, want in cases.items():
         assert suffix(got) == want, f"MINT DRIFT: got {suffix(got)!r}, want {want!r}"
