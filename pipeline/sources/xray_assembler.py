@@ -89,7 +89,7 @@ def transform(src, out, retrieved_at=None):
                 ("rdfs:label", common.lit(r["name"])),
                 ("ex:assemblerReportId", common.lit(rid)),
                 ("ex:facilityName", common.lit(r["name"])),
-                ("ex:address", common.lit(r["address"])),
+                ("ex:address", common.lit(common.norm_address(r["address"]))),   # "N/A" placeholders dropped (v0.0.7)
                 ("ex:city", common.lit(r["city"])),
                 ("ex:state", common.lit(r["state"])),
                 ("ex:postalCode", common.lit(r["zip"])),
