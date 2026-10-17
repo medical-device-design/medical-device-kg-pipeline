@@ -276,8 +276,9 @@ ex:hasClassificationRecord a owl:ObjectProperty ;
     rdfs:label "has classification record" .
 
 ex:hasRegulationNumber a owl:ObjectProperty ;
-    rdfs:domain ex:ProductCode ; rdfs:range ex:RegulationNumber ;
-    rdfs:label "has regulation number" .
+    rdfs:range ex:RegulationNumber ;
+    rdfs:label "has regulation number" ;
+    rdfs:comment "Used on ProductCode, classification, De Novo and radiation product code records. No rdfs:domain (v0.0.7), so RDFS inference does not mis-type those records as product codes." .
 
 ex:hasCFRSection a owl:ObjectProperty ;
     rdfs:domain ex:RegulationNumber ; rdfs:range ex:CFRTitle21Section ;
@@ -814,6 +815,170 @@ ex:dataQualityNote a owl:DatatypeProperty ; rdfs:range xsd:string ;
     rdfs:label "data quality note" ;
     rdfs:comment "A known problem with a value as FDA published it, e.g. an implausible year (0012 for 2012). The value itself is kept unchanged." .
 
-ex:reportedProductCodeText a owl:DatatypeProperty ; rdfs:domain ex:MAUDEReport ; rdfs:range xsd:string ;
+ex:reportedProductCodeText a owl:DatatypeProperty ; rdfs:range xsd:string ;
     rdfs:label "reported product code text" ;
-    rdfs:comment "Product-code text typed by a MAUDE reporter that is not a three-letter FDA product code. Kept as text; no ex:ProductCode node is minted for it." .
+    rdfs:comment "Product-code text in an adverse-event report (MAUDE, ASR, legacy MDR) that is not a three-letter FDA product code. Kept as text; no ex:ProductCode node is minted for it." .
+
+
+# =============================================================================
+# v0.0.7 (October 2026): the rest of FDA's "Medical Device Databases" page.
+# Sources: pipeline/sources/{asr,legacy_mdr,pas,pma_memo,denovo,classification_detail,
+# rh_codes,rh_actions,cecv,advisory,medsun}.py
+# =============================================================================
+ex:SourceDataset a owl:Class ;
+    rdfs:label "Source Dataset" ;
+    rdfs:comment "A bulk FDA dataset described once (download page, retrieval date, usage notes) when repeating that provenance on millions of rows would not fit; rows point to it with ex:inDataset." .
+
+ex:AlternativeSummaryReport a owl:Class ;
+    rdfs:subClassOf ex:AdverseEventReport ;
+    rdfs:label "MDR Alternative Summary Report (1999-2019)" ;
+    rdfs:comment "One row of FDA's ASR files (exempted summary reporting, ended June 2019). Not in MAUDE or openFDA. Rows are summaries, supplements repeat initial reports, and adding them to the companion MAUDE reports double-counts; not usable as event rates." .
+
+ex:ASRExemption a owl:Class ;
+    rdfs:label "ASR Exemption" ;
+    rdfs:comment "The FDA approval (exemption number) under which a manufacturer filed summary reports." .
+
+ex:LegacyMDRReport a owl:Class ;
+    rdfs:subClassOf ex:AdverseEventReport ;
+    rdfs:label "MDR Report, 1984-1997 (Device Experience Network)" ;
+    rdfs:comment "A pre-MAUDE device report from FDA's MDR database (mdr84-mdr97 files). Narratives are in legacy_mdr_text.ttl." .
+
+ex:LegacyMDRManufacturer a owl:Class ;
+    rdfs:label "MDR Manufacturer Code (1984-1997)" ;
+    rdfs:comment "A manufacturer as coded in the DEN files, with that firm's standard disclaimer." .
+
+ex:MedSunReport a owl:Class ;
+    rdfs:subClassOf ex:AdverseEventReport ;
+    rdfs:label "MedSun Report" ;
+    rdfs:comment "A report from FDA's Medical Product Safety Network (clinical sites, 2010 onward). FDA publishes no product code for these reports. Narratives are in medsun_text.ttl." .
+
+ex:PostApprovalStudy a owl:Class ;
+    rdfs:subClassOf ex:PostmarketRecord ;
+    rdfs:label "Post-Approval Study (PAS)" ;
+    rdfs:comment "A study FDA required as a condition of a PMA or HDE approval." .
+
+ex:RadiationProductClassification a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "Radiation-Emitting Electronic Product Code Record" ;
+    rdfs:comment "cfPCD_rh product code record (medical and non-medical radiation-emitting products) with radiation type and performance standards (21 CFR 1000-1050)." .
+
+ex:RadiationCorrectiveAction a owl:Class ;
+    rdfs:subClassOf ex:PostmarketRecord ;
+    rdfs:label "Radiation-Emitting Product Corrective Action / Recall" .
+
+ex:ExportCertificate a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "CDRH Export Certificate (CECV)" .
+
+ex:AdvisoryMeeting a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "CDRH Advisory Committee / Panel Meeting" ;
+    rdfs:comment "FDA's CDRH advisory meeting archive (1996-2009). Agenda and procedure text are in advisory_text.ttl." .
+
+ex:AdvisoryMeetingDocument a owl:Class ;
+    rdfs:label "Advisory Meeting Document" ;
+    rdfs:comment "A transcript, summary, minutes or other document linked from an advisory meeting." .
+
+ex:GuidanceDocument a owl:Class ;
+    rdfs:label "FDA Guidance Document (as linked from a product code page)" .
+
+# ---- object properties (joins) ----
+ex:inDataset              a owl:ObjectProperty ; rdfs:range ex:SourceDataset ; rdfs:label "in dataset" .
+ex:hasExemption           a owl:ObjectProperty ; rdfs:range ex:ASRExemption ; rdfs:label "filed under ASR exemption" .
+ex:hasManufacturerFirm    a owl:ObjectProperty ; rdfs:range ex:FirmName ; rdfs:label "has manufacturer firm (as named)" .
+ex:hasFacilityFirm        a owl:ObjectProperty ; rdfs:range ex:FirmName ; rdfs:label "has facility firm (as named)" .
+ex:hasLegacyManufacturer  a owl:ObjectProperty ; rdfs:range ex:LegacyMDRManufacturer ; rdfs:label "has legacy MDR manufacturer code" .
+ex:sameAccessNumberAs     a owl:ObjectProperty ; rdfs:domain ex:LegacyMDRReport ; rdfs:range ex:LegacyMDRReport ;
+    rdfs:label "same access number as" ; rdfs:comment "Links a later row (usually the FINAL report) to the first row filed under the same access number." .
+ex:hasConsensusStandard   a owl:ObjectProperty ; rdfs:range ex:RecognizedConsensusStandard ; rdfs:label "has recognized consensus standard" .
+ex:hasPerformanceStandard a owl:ObjectProperty ; rdfs:label "has performance standard (21 CFR section)" .
+ex:hasGuidanceDocument    a owl:ObjectProperty ; rdfs:range ex:GuidanceDocument ; rdfs:label "has guidance document" .
+ex:hasDocument            a owl:ObjectProperty ; rdfs:range ex:AdvisoryMeetingDocument ; rdfs:label "has document" .
+ex:documentOf             a owl:ObjectProperty ; owl:inverseOf ex:hasDocument ; rdfs:label "document of" .
+
+# ---- datatype properties ----
+ex:usageNote              a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "usage note" .
+ex:url                    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "URL" .
+ex:exemptionNumber        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "ASR exemption number" .
+ex:manufacturerRegistrationNumber a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "manufacturer registration number (CFN or FEI)" .
+ex:reportId               a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "report id" .
+ex:reportYear             a owl:DatatypeProperty ; rdfs:range xsd:gYear ; rdfs:label "report year" .
+ex:reportQuarter          a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "report quarter" .
+ex:initialOrSupplement    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "initial or supplement report" .
+ex:deviceId               a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device id in the ASR database (model or catalog number)" .
+ex:deviceProblemCode      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA device problem code" .
+ex:patientProblemCode     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA patient problem code" .
+ex:implantAvailableForEvaluation a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "implant available for evaluation" .
+ex:implantReturnedToManufacturer a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "implant returned to manufacturer" .
+ex:accessNumber           a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "MDR access type and number" .
+ex:manufacturerNameCode   a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA manufacturer name code (DEN)" .
+ex:manufacturerDisclaimer a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "manufacturer disclaimer" .
+ex:reportStage            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "report stage (preliminary or final)" .
+ex:fileYear               a owl:DatatypeProperty ; rdfs:range xsd:gYear ; rdfs:label "year of the FDA file" .
+ex:closeoutText           a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "closeout text (narrative)" .
+ex:causedOrContributedTo  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "the device may have caused or contributed to" .
+ex:manufacturerResponse   a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "manufacturer response (narrative)" .
+ex:medsunReportId         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "MedSun report id" .
+ex:applicationNumber      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "PMA or HDE application number" .
+ex:studyNumber            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "post-approval study number" .
+ex:applicationApprovalDate a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "application approval date" .
+ex:originalProtocolAcceptedDate a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "date original protocol accepted" .
+ex:currentProtocolAcceptedDate  a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "date current protocol accepted" .
+ex:followsPremarketCohort a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "study follows the premarket cohort" .
+ex:medicalSpecialty       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "medical specialty" .
+ex:reviewMemoUrl          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "summary review memo (PDF)" .
+ex:approvalOrderUrl       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "approval order (PDF)" .
+ex:pmaDatabaseUrl         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "PMA database page" .
+ex:deNovoNumber           a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "De Novo number" .
+ex:k510Number             a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "510(k) number" .
+ex:requester              a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "requester (firm)" .
+ex:requesterAddress       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "requester address (firm)" .
+ex:deviceClassificationName a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "device classification name" .
+ex:classificationAdvisoryCommittee a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "classification advisory committee" .
+ex:reviewAdvisoryCommittee a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "review advisory committee" .
+ex:decision               a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "decision" .
+ex:deNovoType             a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "De Novo type (direct or post-NSE)" .
+ex:pccpAuthorized         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "predetermined change control plan authorized" .
+ex:classificationOrderUrl a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "classification order (PDF)" .
+ex:decisionSummaryUrl     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "decision summary (PDF)" .
+ex:expeditedReview        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "expedited review" .
+ex:thirdPartyReview       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "third-party review" .
+ex:thirdPartyReviewEligible a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "eligible for third-party review" .
+ex:inVitroDevice          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "in vitro diagnostic device" .
+ex:submissionType         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "submission type" .
+ex:reviewPanelName        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "review panel (full name)" .
+ex:regulationDescription  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "regulation description" .
+ex:premarketReviewOffice  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "premarket review office" .
+ex:premarketReviewDivision a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "premarket review division" .
+ex:physicalState          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "physical state" .
+ex:technicalMethod        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "technical method" .
+ex:targetArea             a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "target area" .
+ex:tplcReportUrl          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA TPLC report page" .
+ex:summaryMalfunctionReportingEligible a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "eligible for summary malfunction reporting" .
+ex:implantedDevice        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "implanted device" .
+ex:lifeSustainingDevice   a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "life-sustaining or life-supporting device" .
+ex:guidanceDocumentTitle  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "guidance document title" .
+ex:guidanceDocumentUrl    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "guidance document URL" .
+ex:accreditedPerson       a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "accredited third-party review organization" .
+ex:annualReportsRequired  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "annual reports required" .
+ex:performanceStandardCitation a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "performance standard citation" .
+ex:performanceStandardText a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "performance standard (as published)" .
+ex:performanceStandardTitle a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "performance standard title" .
+ex:radiationProductGroup  a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "radiation product group" .
+ex:radiationSafetyReportType a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "radiation safety report type" .
+ex:radiationType          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "radiation type" .
+ex:certificateNumber      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "certificate number" .
+ex:certificateType        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "certificate type" .
+ex:expirationDate         a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "expiration date" .
+ex:pagesPerCertificate    a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "pages per certificate" .
+ex:advisoryPanelId        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "advisory panel id" .
+ex:meetingId              a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA meeting id" .
+ex:meetingDate            a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "meeting date" .
+ex:meetingSession         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "meeting session" .
+ex:meetingStatus          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "meeting status" .
+ex:location               a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "location" .
+ex:documentType           a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "document type" .
+ex:agenda                 a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "agenda (text file)" .
+ex:procedure              a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "procedure (text file)" .
+ex:conductNote            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "conduct note (text file)" .
+ex:otherDetail            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "other detail (text file)" .
