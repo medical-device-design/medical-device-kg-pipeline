@@ -1,6 +1,6 @@
 ############################################################
 # medical-device-kg VM health  --  Layer 2
-# host: build-vm   user: <user>   date_utc: 2026-10-12T10:30:01Z
+# host: build-vm   user: <user>   date_utc: 2026-10-19T10:30:01Z
 # MDKG: /srv/medical-device-kg
 ############################################################
 
@@ -14,11 +14,11 @@
 
 == 2. disk ==
 Filesystem      Size  Used Avail Use% Mounted on
-/dev/sda3       197G  170G   19G  91% /
-   FAIL disk 91% used on /srv/medical-device-kg
+/dev/sda3       197G  169G   19G  90% /
+   FAIL disk 90% used on /srv/medical-device-kg
    tree sizes:
-     3.3M	/srv/medical-device-kg/repo
-     37M	/srv/medical-device-kg/downloads
+     3.7M	/srv/medical-device-kg/repo
+     1.2G	/srv/medical-device-kg/downloads
      1.6G	/srv/medical-device-kg/out
      40M	/srv/medical-device-kg/nstest
 
@@ -55,7 +55,7 @@ Filesystem      Size  Used Avail Use% Mounted on
 
 == 7. mdkg-check (outstanding items) ==
      ===================================================================
-      Medical Device KG — structure check   2026-10-12 06:30   build-vm
+      Medical Device KG — structure check   2026-10-19 06:30   build-vm
      ===================================================================
      
      [1] Shared area exists and is group-owned
