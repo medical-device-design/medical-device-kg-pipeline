@@ -896,6 +896,23 @@ ex:hasGuidanceDocument    a owl:ObjectProperty ; rdfs:range ex:GuidanceDocument 
 ex:hasDocument            a owl:ObjectProperty ; rdfs:range ex:AdvisoryMeetingDocument ; rdfs:label "has document" .
 ex:documentOf             a owl:ObjectProperty ; owl:inverseOf ex:hasDocument ; rdfs:label "document of" .
 
+# ---- stopgap derived views (pipeline/derived_views.py), labeled on their ex:SourceDataset nodes ----
+ex:TPLCYearStatistic a owl:Class ;
+    rdfs:label "TPLC Yearly Premarket and Recall Statistic" ;
+    rdfs:comment "Per product code and year: 510(k), PMA, De Novo and HDE decisions and recalls initiated, computed from the graph's FDA records. Shares the IRI of the MAUDE MDRStatistic for the same code and year." .
+ex:radiationProductClassification a owl:ObjectProperty ; rdfs:range ex:RadiationProductClassification ; rdfs:label "radiation-emitting product code record" .
+ex:citedPerformanceStandard a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "21 CFR 1000-1050 section cited in the recall text" .
+ex:hasYearStatistic       a owl:ObjectProperty ; rdfs:range ex:TPLCYearStatistic ; rdfs:label "has yearly premarket and recall statistic" .
+ex:k510DecisionCount      a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "510(k) decisions" .
+ex:pmaOriginalCount       a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "PMA original approvals" .
+ex:pmaSupplementCount     a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "PMA supplement decisions" .
+ex:deNovoDecisionCount    a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "De Novo decisions" .
+ex:hdeOriginalCount       a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "HDE original approvals" .
+ex:recallCount            a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "recalls (product level)" .
+ex:recallClassICount      a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "Class I recalls" .
+ex:recallClassIICount     a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "Class II recalls" .
+ex:recallClassIIICount    a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "Class III recalls" .
+
 # ---- datatype properties ----
 ex:usageNote              a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "usage note" .
 ex:url                    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "URL" .
