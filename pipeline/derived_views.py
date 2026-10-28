@@ -218,25 +218,25 @@ def _selftest():
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
-        P = "@prefix ex: <https://bmedesign.org/medical-device-kg/ns/> .\n\n"
-        (d / "rh.ttl").write_text(P + "<https://bmedesign.org/medical-device-kg/id/radiation-product-classification/jak>\n"
+        P = "@prefix ex: <" + iri.NS + "> .\n\n"
+        (d / "rh.ttl").write_text(P + "<" + iri.ID + "radiation-product-classification/jak>\n"
                                   '    a ex:RadiationProductClassification ;\n    ex:productCode "JAK" ;\n'
                                   '    ex:performanceStandardCitation "1020.33" .\n\n', encoding="utf-8")
-        (d / "rec.ttl").write_text(P + "<https://bmedesign.org/medical-device-kg/id/recall/z_0001_2020>\n    a ex:RecallRecord ;\n"
+        (d / "rec.ttl").write_text(P + "<" + iri.ID + "recall/z_0001_2020>\n    a ex:RecallRecord ;\n"
                                    '    ex:recallNumber "Z-0001-2020" ;\n    ex:recallClassification "Class II" ;\n'
                                    '    ex:reasonForRecall "Does not comply with 21 CFR 1020.33(c)." ;\n'
                                    '    ex:recallInitiationDate "2020-03-01"^^xsd:date ;\n'
-                                   "    ex:hasProductCode <https://bmedesign.org/medical-device-kg/id/product-code/jak> .\n\n"
-                                   "<https://bmedesign.org/medical-device-kg/id/recall/z_0002_2020>\n    a ex:RecallRecord ;\n"
-                                   "    ex:hasProductCode <https://bmedesign.org/medical-device-kg/id/product-code/frn> .\n\n",
+                                   "    ex:hasProductCode <" + iri.ID + "product-code/jak> .\n\n"
+                                   "<" + iri.ID + "recall/z_0002_2020>\n    a ex:RecallRecord ;\n"
+                                   "    ex:hasProductCode <" + iri.ID + "product-code/frn> .\n\n",
                                    encoding="utf-8")
-        (d / "k.ttl").write_text(P + "<https://bmedesign.org/medical-device-kg/id/k510/k1>\n    a ex:K510Record ;\n"
+        (d / "k.ttl").write_text(P + "<" + iri.ID + "k510/k1>\n    a ex:K510Record ;\n"
                                  '    ex:decisionDate "2019-05-01"^^xsd:date ;\n'
-                                 "    ex:hasProductCode <https://bmedesign.org/medical-device-kg/id/product-code/jak> .\n\n",
+                                 "    ex:hasProductCode <" + iri.ID + "product-code/jak> .\n\n",
                                  encoding="utf-8")
-        (d / "p.ttl").write_text(P + "<https://bmedesign.org/medical-device-kg/id/pma/p1/supplement/s1>\n    a ex:PMARecord ;\n"
+        (d / "p.ttl").write_text(P + "<" + iri.ID + "pma/p1/supplement/s1>\n    a ex:PMARecord ;\n"
                                  '    ex:supplementNumber "S001" ;\n    ex:decisionDate "2019-06-01"^^xsd:date ;\n'
-                                 "    ex:hasProductCode <https://bmedesign.org/medical-device-kg/id/product-code/jak> .\n\n",
+                                 "    ex:hasProductCode <" + iri.ID + "product-code/jak> .\n\n",
                                  encoding="utf-8")
         for n in ("t.ttl", "h.ttl", "dn.ttl"):
             (d / n).write_text(P, encoding="utf-8")
