@@ -902,7 +902,7 @@ ex:documentOf             a owl:ObjectProperty ; owl:inverseOf ex:hasDocument ; 
 ex:additionalField        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "additional page field (label: value), kept when FDA adds a field the parser does not map" .
 ex:combinationProduct     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "combination product (as published)" .
 
-# ---- FDA's own TPLC pages (pipeline/sources/fda_tplc.py; held out of the CC0 release until FDA confirms the license) ----
+# ---- FDA's own TPLC pages (pipeline/sources/fda_tplc.py; US public domain records like the other CDRH databases) ----
 ex:FDATPLCReport a owl:Class ;
     rdfs:subClassOf ex:PostmarketRecord ;
     rdfs:label "FDA TPLC Report (as published by FDA)" ;

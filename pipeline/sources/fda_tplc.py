@@ -33,9 +33,9 @@ SECTIONS seen on October 26-27, 2026 (all parsed):
 
 NOT INGESTED: nothing personal appears on the page (firm names only).
 
-Licence: FDA has not confirmed the TPLC licence (data.gov lists ODbL; asked
-uig@fda.hhs.gov, October 2026). Output stays in its own file, fda_tplc.ttl, held out of
-the CC0 release until FDA confirms; the dataset node carries ex:usageNote saying so.
+Licence: FDA public data (US public domain records), treated like the other CDRH databases
+(PI decision, October 28, 2026). data.gov lists ODbL for TPLC, so uig@fda.hhs.gov was asked
+to confirm. Output is fda_tplc.ttl, part of the open release.
 
 Modeling
   ex:FDATPLCReport at iri.fda_tplc(code)
@@ -90,8 +90,8 @@ DEFAULT_CODES = "/srv/medical-device-kg/work/out-2026-10-11/classification.ttl"
 RECALL_CAP = 100
 STOP_AFTER_REDIRECTS = 3
 USAGE_NOTE = ("FDA's own Total Product Life Cycle pages (cfTPLC/tplc.cfm), min_report_year=2011. "
-              "The license is unconfirmed (data.gov lists ODbL; asked uig@fda.hhs.gov in October 2026), so "
-              "this file is held out of the CC0 release until FDA confirms. FDA lists at most 100 recall "
+              "FDA public data (US public domain records), released on the same terms as the other CDRH "
+              "databases. FDA lists at most 100 recall "
               "rows per product code (ex:recallListTruncated marks those pages); the page no longer shows "
               "adverse event counts. Counts are FDA's page values, not recomputed.")
 
@@ -652,7 +652,7 @@ def _selftest():
     assert f"ex:partOfRecallEvent <{iri.recall_event('85954')}>" in ttl
     assert 'ex:datePosted "2020-08-06"^^xsd:date' in ttl and 'ex:recallClass "I"' in ttl
     assert f"<{row_iri('NIQ', 'pma-year', 2012)}>" in ttl and 'ex:pmaDecisionCount "167"^^xsd:integer' in ttl
-    assert "ex:usageNote" in ttl and "CC0" in ttl
+    assert "ex:usageNote" in ttl and "public domain" in ttl
     assert f"<{iri.fda_tplc('ZZQ')}>" in ttl and 'ex:recallListTruncated "false"^^xsd:boolean' in ttl
     print(f"fda_tplc.py self-test PASSED ({st.records} nodes, {st.triples} triples).")
 
