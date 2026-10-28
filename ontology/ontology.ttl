@@ -43,12 +43,15 @@
 @prefix skos:      <http://www.w3.org/2004/02/skos/core#> .
 @prefix geo:       <http://www.opengis.net/ont/geosparql#> .
 @prefix wgs:       <http://www.w3.org/2003/01/geo/wgs84_pos#> .
+@prefix dcterms:   <http://purl.org/dc/terms/> .
 
 <https://bmedesign.org/medical-device-kg/ns/>
     a owl:Ontology ;
     rdfs:label "Medical Device Design Knowledge Graph vocabulary" ;
     rdfs:comment "FDA device regulatory, safety and postmarket data as one graph. NSF Proto-OKN subaward 5136002; NIH/NIBIB R25EB035522. PI: Roche C. de Guzman." ;
-    owl:versionInfo "rebuild-2026-09" .
+    owl:versionInfo "v0.0.7" ;
+    dcterms:license <https://creativecommons.org/publicdomain/zero/1.0/> ;
+    dcterms:rights "CC0 1.0 public domain dedication by Hofstra University, as provided in the statement of work of NSF Proto-OKN subaward 5136002. Source records are U.S. FDA public records (U.S. Government works). Third-party terminology, such as GMDN term text in UDI records, is excluded from the dedication." .
 
 
 # =============================================================================

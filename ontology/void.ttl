@@ -81,7 +81,8 @@ ex:queryFile a owl:AnnotationProperty ;
     dcterms:title "Medical Device Design Knowledge Graph" ;
     dcterms:description "FDA device regulatory, safety, classification and postmarket data assembled as one RDF graph for device-design decision support. NSF Proto-OKN subaward 5136002; NIH/NIBIB R25EB035522. Published via the FRINK federation." ;
     dcterms:publisher "Roche C. de Guzman (Principal Investigator)" ;
-    dcterms:rights "Source records are U.S. FDA / U.S. Government works (public domain). The RDF transformation, vocabulary and this metadata are released under the repository LICENSE." ;
+    dcterms:license <https://creativecommons.org/publicdomain/zero/1.0/> ;
+    dcterms:rights "CC0 1.0 public domain dedication by Hofstra University, as provided in the statement of work of NSF Proto-OKN subaward 5136002. Source records are U.S. FDA public records (U.S. Government works). Third-party terminology, such as GMDN term text in UDI records, is excluded from the dedication." ;
     dcterms:source <https://open.fda.gov/apis/device/> ;
     void:vocabulary <https://bmedesign.org/medical-device-kg/ns/> ;
     void:uriSpace "https://bmedesign.org/medical-device-kg/id/" ;
@@ -260,6 +261,6 @@ ex:cq10 a ex:CompetencyQuestion ; ex:questionKind "distribution structuring" ;
     ex:queryFile "competency/cq10_recalls_by_state.rq" ;
     ex:exampleQuery """PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
 SELECT ?r WHERE {
-  ?r ex:distributedToState "NY" .
+  ?r ex:distributedToState \"NY\" .
 }
 LIMIT 50""" .
