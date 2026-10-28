@@ -547,6 +547,7 @@ ex:supplementOf         a owl:ObjectProperty ; rdfs:label "supplement of (PMA or
 ex:reviewGranted        a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "HDE review granted" .
 ex:fedRegNoticeDate     a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "Federal Register notice date" .
 ex:hasApplicantFirm     a owl:ObjectProperty ; rdfs:range ex:FirmName ; rdfs:label "has applicant firm (as named)" .
+
 # ---- classification (record-level flags; ex:implantable / ex:lifeSustaining are
 #      the same flags copied onto the ProductCode hub for one-hop queries) ----
 ex:reviewPanel          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "review panel" .
