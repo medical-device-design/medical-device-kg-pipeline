@@ -33,9 +33,9 @@ SECTIONS seen on October 26-27, 2026 (all parsed):
 
 NOT INGESTED: nothing personal appears on the page (firm names only).
 
-Licence: FDA public data (US public domain records), treated like the other CDRH databases
-(PI decision, October 28, 2026). data.gov lists ODbL for TPLC, so uig@fda.hhs.gov was asked
-to confirm. Output is fda_tplc.ttl, part of the open release.
+Licence: FDA public data (US public domain records). data.gov lists ODbL for TPLC; we treat
+it like the other CDRH databases (PI decision, October 28, 2026). Output is fda_tplc.ttl,
+part of the open release.
 
 Modeling
   ex:FDATPLCReport at iri.fda_tplc(code)
