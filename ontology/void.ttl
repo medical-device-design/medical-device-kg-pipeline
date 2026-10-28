@@ -261,6 +261,6 @@ ex:cq10 a ex:CompetencyQuestion ; ex:questionKind "distribution structuring" ;
     ex:queryFile "competency/cq10_recalls_by_state.rq" ;
     ex:exampleQuery """PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
 SELECT ?r WHERE {
-  ?r ex:distributedToState \"NY\" .
+  ?r ex:distributedToState "NY" .
 }
 LIMIT 50""" .
