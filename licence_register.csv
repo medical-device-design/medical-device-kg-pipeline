@@ -33,4 +33,5 @@ rh_actions,cdrh/pcd-rh-res,FDA public data (US public domain records),https://ww
 cecv,cdrh/cecv,FDA public data (US public domain records),https://www.fda.gov/about-fda/about-website/website-policies,yes,rl_cert.cfm by expiration-date windows + detail pages; facility business names only; 1 request/second,,
 advisory,cdrh/advisory,FDA public data (US public domain records),https://www.fda.gov/about-fda/about-website/website-policies,yes,cfAdvisory archive to 2009; FDA staff contact block not ingested; text scrubbed into advisory_text.ttl,,
 medsun,cdrh/medsun,FDA public data (US public domain records),https://www.fda.gov/about-fda/about-website/website-policies,yes,MedSun search by date windows + detail pages; narratives scrubbed into medsun_text.ttl; 1 request/second,,
+fda_tplc,cdrh/cfTPLC,Unconfirmed (data.gov lists ODbL),https://catalog.data.gov/,no,license unconfirmed (data.gov lists ODbL); asked uig@fda.hhs.gov October 2026,,
 geospatial,derived/census-geocoder,US Census Geocoder output (US Government work) on FDA public addresses,https://geocoding.geo.census.gov/,yes,Business addresses of US establishments and MQSA facilities only; Match rows only,,

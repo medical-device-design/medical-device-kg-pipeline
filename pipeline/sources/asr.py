@@ -26,7 +26,7 @@ Modeling
     (ex:deviceProblem / ex:patientProblem), the same predicates MAUDE uses.
   * To keep the 6 M-row file within the VM's disk, per-row provenance is the dataset
     and record id only; download URL and date sit once on the dataset node
-    (ex:AlternativeSummaryReportDataset) that every row links to via ex:inDataset.
+    (an ex:SourceDataset) that every row links to via ex:inDataset.
 No patient identifiers exist in these files; nothing is removed.
 """
 import os
@@ -278,7 +278,7 @@ def _selftest():
         st = transform(d, out, retrieved_at="2026-10-12")
         ttl = out.read_text(encoding="utf-8")
         assert st.records == 3, st
-        assert "<https://bmedesign.org/medical-device-kg/id/asr-report/2010/1>" in ttl
+        assert f"<{iri.asr_report(2010, 1)}>" in ttl
         assert 'ex:deviceProblem "Device Inoperable"' in ttl
         assert 'ex:patientProblemCode "2013"' in ttl and 'ex:patientProblem "No Known Impact Or Consequence To Patient"' in ttl
         assert 'ex:eventType "Serious Injury"' in ttl and 'ex:initialOrSupplement "Supplement"' in ttl

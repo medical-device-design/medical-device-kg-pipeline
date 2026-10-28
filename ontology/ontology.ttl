@@ -547,7 +547,6 @@ ex:supplementOf         a owl:ObjectProperty ; rdfs:label "supplement of (PMA or
 ex:reviewGranted        a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "HDE review granted" .
 ex:fedRegNoticeDate     a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "Federal Register notice date" .
 ex:hasApplicantFirm     a owl:ObjectProperty ; rdfs:range ex:FirmName ; rdfs:label "has applicant firm (as named)" .
-
 # ---- classification (record-level flags; ex:implantable / ex:lifeSustaining are
 #      the same flags copied onto the ProductCode hub for one-hop queries) ----
 ex:reviewPanel          a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "review panel" .
@@ -898,6 +897,38 @@ ex:hasPerformanceStandard a owl:ObjectProperty ; rdfs:label "has performance sta
 ex:hasGuidanceDocument    a owl:ObjectProperty ; rdfs:range ex:GuidanceDocument ; rdfs:label "has guidance document" .
 ex:hasDocument            a owl:ObjectProperty ; rdfs:range ex:AdvisoryMeetingDocument ; rdfs:label "has document" .
 ex:documentOf             a owl:ObjectProperty ; owl:inverseOf ex:hasDocument ; rdfs:label "document of" .
+
+ex:additionalField        a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "additional page field (label: value), kept when FDA adds a field the parser does not map" .
+ex:combinationProduct     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "combination product (as published)" .
+
+# ---- FDA's own TPLC pages (pipeline/sources/fda_tplc.py; held out of the CC0 release until FDA confirms the license) ----
+ex:FDATPLCReport a owl:Class ;
+    rdfs:subClassOf ex:PostmarketRecord ;
+    rdfs:label "FDA TPLC Report (as published by FDA)" ;
+    rdfs:comment "FDA's Total Product Life Cycle page for one product code (cfTPLC/tplc.cfm). Kept apart from ex:TPLCRecord, our own computed aggregate. FDA lists at most 100 recall rows per code (ex:recallListTruncated)." .
+ex:FDATPLCPremarketReview a owl:Class ; rdfs:label "FDA TPLC premarket review row" .
+ex:FDATPLCRecallRow       a owl:Class ; rdfs:label "FDA TPLC recall row" .
+ex:FDATPLCYearCount       a owl:Class ; rdfs:label "FDA TPLC yearly PMA count" .
+ex:hasPremarketReview     a owl:ObjectProperty ; rdfs:range ex:FDATPLCPremarketReview ; rdfs:label "has premarket review row" .
+ex:hasRecallRow           a owl:ObjectProperty ; rdfs:range ex:FDATPLCRecallRow ; rdfs:label "has recall row" .
+ex:hasYearCount           a owl:ObjectProperty ; rdfs:range ex:FDATPLCYearCount ; rdfs:label "has yearly count" .
+ex:partOfTPLCReport       a owl:ObjectProperty ; rdfs:range ex:FDATPLCReport ; rdfs:label "part of FDA TPLC report" .
+ex:tplcId                 a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "FDA internal TPLC id" .
+ex:reportWindowStartYear  a owl:DatatypeProperty ; rdfs:range xsd:gYear ; rdfs:label "report window start year" .
+ex:reportWindowEndYear    a owl:DatatypeProperty ; rdfs:range xsd:gYear ; rdfs:label "report window end year" .
+ex:recallListTruncated    a owl:DatatypeProperty ; rdfs:range xsd:boolean ; rdfs:label "FDA recall list truncated at 100 rows" .
+ex:premarketReviewRowCount a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "premarket review rows" .
+ex:recallRowCount         a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "recall rows" .
+ex:pmaYearRowCount        a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "PMA year rows" .
+ex:decisionCount          a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "decision count" .
+ex:decisionCountText      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "decision count (as published)" .
+ex:decisionParameter      a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "decision filter parameter in FDA's link" .
+ex:pmaDecisionCount       a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "PMA decision count" .
+ex:countText              a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "count (as published)" .
+ex:datePosted             a owl:DatatypeProperty ; rdfs:range xsd:date ; rdfs:label "date posted" .
+ex:recallClass            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "recall class (as listed on the TPLC page)" .
+ex:rowNumber              a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "row number on the page" .
+ex:section                a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "page section" .
 
 # ---- stopgap derived views (pipeline/derived_views.py), labeled on their ex:SourceDataset nodes ----
 ex:TPLCYearStatistic a owl:Class ;
