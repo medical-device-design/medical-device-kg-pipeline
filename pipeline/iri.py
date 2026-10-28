@@ -465,6 +465,70 @@ def fda_tplc(product_code_value):
     return _instance("fda-tplc", slug(product_code_value))
 
 
+def ai_enabled_device(submission_number):
+    """A row of FDA's AI-enabled medical device list, keyed on its submission number
+    (510(k), De Novo or PMA[/supplement]). The row links to the premarket record node
+    through ex:listedSubmission; this is the listing, not the clearance itself.
+        ai_enabled_device('K253628')      -> .../id/ai-enabled-device/k253628
+        ai_enabled_device('P130020/S005') -> .../id/ai-enabled-device/p130020_s005"""
+    return _instance("ai-enabled-device", slug(submission_number))
+
+
+def device_eua(key):
+    """A device Emergency Use Authorization row. FDA publishes no EUA number on its
+    pages, so the key is the first 16 hex digits of sha1("page|section|holder|product")
+    (with an ordinal suffix if a page repeats the same row).
+        device_eua('0123456789abcdef') -> .../id/device-eua/0123456789abcdef"""
+    return _instance("device-eua", slug(key))
+
+
+def eua_document(key):
+    """A document linked from a device EUA (letter, fact sheet, IFU, summary, notice),
+    keyed on FDA's media id when the link is www.fda.gov/media/<id>/download, else
+    sha1(url)[:16].
+        eua_document('media_165581') -> .../id/eua-document/media_165581"""
+    return _instance("eua-document", slug(key))
+
+
+def warning_letter(key):
+    """An FDA warning letter about medical devices. The key is
+    "<MARCS-CMS number>-<MMDDYYYY>" from the letter URL, else the whole URL slug.
+        warning_letter('727888-08262026') -> .../id/warning-letter/727888_08262026"""
+    return _instance("warning-letter", slug(key))
+
+
+def safety_communication(page_slug):
+    """A CDRH safety communication or letter to health care providers, keyed on the
+    last path segment of its fda.gov page.
+        safety_communication('do-not-use-certain-olympus-endoscopes')
+        -> .../id/safety-communication/do_not_use_certain_olympus_endoscopes"""
+    return _instance("safety-communication", slug(page_slug))
+
+
+def guidance_document(page_slug):
+    """An FDA guidance document, keyed on the last path segment of its fda.gov page.
+        guidance_document('infusion-pumps-total-product-life-cycle')
+        -> .../id/guidance-document/infusion_pumps_total_product_life_cycle"""
+    return _instance("guidance-document", slug(page_slug))
+
+
+def device_shortage(product_codes):
+    """A Medical Device Shortages List entry, keyed on its product code(s). A list of
+    codes is joined with "_" in the order given.
+        device_shortage('HBA')          -> .../id/device-shortage/hba
+        device_shortage(['FMF', 'FMI']) -> .../id/device-shortage/fmf_fmi"""
+    if isinstance(product_codes, (list, tuple)):
+        product_codes = "_".join(product_codes)
+    return _instance("device-shortage", slug(product_codes))
+
+
+def device_discontinuance(key):
+    """A row of FDA's device Discontinuance List. FDA gives no row id, so the key is
+    the first 16 hex digits of sha1("date posted|product codes|manufacturer|trade name").
+        device_discontinuance('0123456789abcdef') -> .../id/device-discontinuance/0123456789abcdef"""
+    return _instance("device-discontinuance", slug(key))
+
+
 # ===========================================================================
 #  SELF-TEST -- pins every minter against the layout verified on the live
 #  endpoint (2026-09-07). Run `python3 iri.py`; a failure means an IRI drifted
@@ -533,6 +597,18 @@ def _selftest():
         export_certificate("1234-2026"):     "export-certificate/1234_2026",
         advisory_meeting("1234"):            "advisory-meeting/1234",
         fda_tplc("FRN"):                     "fda-tplc/frn",
+        ai_enabled_device("K253628"):        "ai-enabled-device/k253628",
+        ai_enabled_device("P130020/S005"):   "ai-enabled-device/p130020_s005",
+        device_eua("0123456789abcdef"):      "device-eua/0123456789abcdef",
+        eua_document("media_165581"):        "eua-document/media_165581",
+        warning_letter("727888-08262026"):   "warning-letter/727888_08262026",
+        safety_communication("do-not-use-certain-olympus-endoscopes"):
+                                             "safety-communication/do_not_use_certain_olympus_endoscopes",
+        guidance_document("infusion-pumps-total-product-life-cycle"):
+                                             "guidance-document/infusion_pumps_total_product_life_cycle",
+        device_shortage("HBA"):              "device-shortage/hba",
+        device_shortage(["FMF", "FMI"]):     "device-shortage/fmf_fmi",
+        device_discontinuance("0123456789abcdef"): "device-discontinuance/0123456789abcdef",
     }
     for got, want in cases.items():
         assert suffix(got) == want, f"MINT DRIFT: got {suffix(got)!r}, want {want!r}"
