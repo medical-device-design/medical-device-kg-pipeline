@@ -173,8 +173,12 @@ one whose limitations are discovered.
 
 ## License
 
-Data derived from US FDA public records, which are not subject to copyright. This
-repository's code and the ontology are released under CC BY 4.0 — see [LICENSE](LICENSE).
+The graph, ontology, code and transformations are dedicated to the public domain under
+[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/), as provided in the statement of
+work of NSF Proto-OKN subaward 5136002. Anyone may use them, including commercially, without
+permission; citation is appreciated (see [CITATION.cff](CITATION.cff)). The underlying FDA
+records are U.S. government works and not subject to copyright. Third-party terminology (GMDN
+term text in UDI records) is excluded from the dedication. See [LICENSE](LICENSE).
 
 FDA does not endorse this project. The FDA logo is not used.
 
