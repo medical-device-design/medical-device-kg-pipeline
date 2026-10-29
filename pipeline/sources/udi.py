@@ -153,6 +153,12 @@ def transform(src, out, retrieved_at=None):
                 elif u.startswith("P") or u.startswith("N"):
                     pairs.append(("ex:relatedPMARecord", _ref(iri.pma(num))))
                     supp = str(sub.get("supplement_number") or "").strip()
+                    # GUDID writes the supplement number as digits only ("014"); FDA PMA data
+                    # (pma.py, verbatim openFDA supplement_number) writes "S014". Use FDA's form
+                    # so the link reaches the PMA supplement node; values that already carry
+                    # the "S" are kept as they are.
+                    if supp.isdigit():
+                        supp = "S" + supp
                     if supp:      # the specific supplement that covers this device version
                         pairs.append(("ex:relatedPMARecord", _ref(iri.pma(num, supp))))
                 elif u.startswith("H"):
@@ -285,6 +291,7 @@ def _selftest():
          "gmdn_terms": [{"code": "35204", "name": "Defibrillator", "implantable": "true"}],
          "premarket_submissions": [{"submission_number": "K123456"},
                                    {"submission_number": "P900001", "supplement_number": "S012"},
+                                   {"submission_number": "P900002", "supplement_number": "014"},
                                    {"submission_number": "DEN140010"}],
          "commercial_distribution_end_date": "2024-05-01",
          "device_sizes": [{"type": "Catheter Gauge", "value": "20", "unit": "Gauge"},
@@ -316,6 +323,9 @@ def _selftest():
     assert f"<{iri.gmdn('35204')}>" in text and "ex:GMDNTerm" in text
     assert f"<{iri.k510('K123456')}>" in text and f"<{iri.k510('DEN140010')}>" in text
     assert f"<{iri.pma('P900001')}>" in text and f"<{iri.pma('P900001', 'S012')}>" in text
+    # GUDID's digits-only supplement "014" links to FDA PMA data's "S014" node (as pma.py mints it)
+    assert f"<{iri.pma('P900002', 'S014')}>" in text, text
+    assert f"<{iri.pma('P900002', '014')}>" not in text
     assert 'ex:deviceSize "Catheter Gauge: 20 Gauge"' in text and 'Small"' in text
     assert '"2024-05-01"^^xsd:date' in text and 'ex:packageStatus "Not in Commercial Distribution"' in text
     assert "help@example.com" not in text and "555-0100" not in text
