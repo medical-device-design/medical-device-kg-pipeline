@@ -89,13 +89,15 @@ def transform(src, out, retrieved_at=None):
                 ("rdfs:label", common.lit(r["name"])),
                 ("ex:assemblerReportId", common.lit(rid)),
                 ("ex:facilityName", common.lit(r["name"])),
-                ("ex:address", common.lit(r["address"])),
-                ("ex:city", common.lit(r["city"])),
-                ("ex:state", common.lit(r["state"])),
-                ("ex:postalCode", common.lit(r["zip"])),
-                ("ex:phone", common.lit(r["phone"])),
+                # placeholders ("N/A", "N/A=NOT APPLICABLE", "0000 N/A", "NA", "00000", ...) mean
+                # "no value": no triple is written (common.is_placeholder); real text is kept whole
+                ("ex:address", common.lit(common.norm_address(r["address"]))),
+                ("ex:city", common.lit(common.clean_value(r["city"]))),
+                ("ex:state", common.lit(common.clean_value(r["state"]))),
+                ("ex:postalCode", common.lit(common.clean_value(r["zip"]))),
+                ("ex:phone", common.lit(common.clean_phone(r["phone"]))),
                 ("ex:installationDate", common.date_lit(r["installed"])),
-                ("ex:room", common.lit(r["room"])),
+                ("ex:room", common.lit(common.clean_value(r["room"]))),
                 ("ex:equipmentType", common.lit(r["typ"])),
             ]
             for k in ("use1", "use2", "use3", "use4"):
@@ -120,7 +122,10 @@ def _selftest():
     txt = ("|".join(COLUMNS) + "\n"
            "1|MEDICAL GROUP/SGSAR|330 KIRKPATRICK AVENUE EAST|MAXWELL AFB|AL|36612|(334)953-0393|1997-08-20|X-RAY|8|0|0|0|S|||1|1|1||||\n"
            "2|B SHARED SERVICES|333 W THOMAS SUITE A|PHOENIX|AZ|85013|(602)274-5459|1995-07-14|X-RAY|1|0|0|0|S|||1|1|1|1|||\n"
-           "2|DUPLICATE ID|x|y|AZ|85013||1995-07-14|X|0|0|0|0|S|||||||||\n")
+           "2|DUPLICATE ID|x|y|AZ|85013||1995-07-14|X|0|0|0|0|S|||||||||\n"
+           "3|NAVAL HOSPITAL|N/A=NOT APPLICABLE|N/A|NA|00000|3086353033-XN/A|2001-02-03|N/A=NOT AP|1|0|0|0|S|||1|||||\n"
+           "4|CLINIC|0000 N/A|NASHVILLE|TN|37203|N/A|2001-02-03|N/A MOBILE|1|0|0|0|S|||1|||||\n"
+           "5|SHANGHAI X-RAY|YAN/AN XI ROAD|SHANGHAI||200040|NA|2001-02-03|NA|1|0|0|0|S|||1|||||\n")
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
         (d / "assem.txt").write_text(txt, encoding="latin-1")
@@ -132,10 +137,20 @@ def _selftest():
             transform(bad, bad / "x.ttl"); raise AssertionError("header change not detected")
         except RuntimeError:
             pass
-    assert st.records == 2 and st.skipped == 1, st
+    assert st.records == 5 and st.skipped == 1, st
     assert f"<{iri.xray_assembler('1')}>" in ttl and "a ex:XrayAssemblerRecord" in ttl
     assert '"1997-08-20"^^xsd:date' in ttl and 'ex:equipmentUseCode "8"' in ttl
-    assert ttl.count('ex:installedComponentCode') == 7                    # b h f  +  b h f l
+    assert ttl.count('ex:installedComponentCode') == 10                   # b h f  +  b h f l  +  b x3
+    # placeholders are absent (no triple); real text that contains N/A letters is kept whole
+    b3 = ttl.split(f"<{iri.xray_assembler('3')}>", 1)[1].split("\n\n", 1)[0]
+    for p in ("ex:address", "ex:city", "ex:state", "ex:postalCode", "ex:room"):
+        assert p not in b3, (p, b3)
+    assert 'ex:phone "3086353033"' in b3 and 'rdfs:label "NAVAL HOSPITAL"' in b3
+    b4 = ttl.split(f"<{iri.xray_assembler('4')}>", 1)[1].split("\n\n", 1)[0]
+    assert "ex:address" not in b4 and "ex:phone" not in b4 and 'ex:room "N/A MOBILE"' in b4
+    assert 'ex:city "NASHVILLE"' in b4
+    assert 'ex:address "YAN/AN XI ROAD"' in ttl
+    assert '"N/A"' not in ttl and "NOT AP" not in ttl and '"0000 N/A"' not in ttl and '"NA"' not in ttl
     assert 'ex:postalCode "36612"' in ttl and 'ex:sourceDataset "cdrh/assem"' in ttl
     print(f"xray_assembler.py self-test PASSED ({st.records} records, {st.triples} triples).")
 

@@ -17,23 +17,18 @@
 
 ex:UDIDeviceRecord a rdfs:Class ;
     rdfs:subClassOf ex:FDADataRecord ;
-    rdfs:label "UDI Device Record (AccessGUDID)" ;
     rdfs:comment "One published GUDID device record, identified by its stable public_device_record_key UUID. Carries the physical and labelling attributes of a marketed device." .
 
 ex:UDIIdentifier a rdfs:Class ;
-    rdfs:label "UDI Device or Package Identifier" ;
     rdfs:comment "One entry from the GUDID identifiers array: a Primary DI, Package DI, or Unit-of-Use DI, issued by GS1, HIBCC or ICCBBA." .
 
 ex:GMDNTerm a rdfs:Class ;
-    rdfs:label "GMDN Term" ;
     rdfs:comment "Global Medical Device Nomenclature term. The only external controlled vocabulary present anywhere in FDA device data, and therefore the graph's most promising bridge to non-FDA sources." .
 
 ex:Labeler a rdfs:Class ;
-    rdfs:label "UDI Labeler" ;
     rdfs:comment "The organisation that labels a device, identified by D-U-N-S number. Deliberately kept DISTINCT from ex:Manufacturer, which is keyed on FEI or on a slugified name. FDA publishes no FEI-to-DUNS crosswalk, so equating them would be a guess." .
 
 ex:StorageCondition a rdfs:Class ;
-    rdfs:label "Storage and Handling Condition" ;
     rdfs:comment "A typed storage requirement with high/low values and units, e.g. a temperature range." .
 
 # =========================
@@ -41,40 +36,32 @@ ex:StorageCondition a rdfs:Class ;
 # =========================
 
 ex:hasIdentifier a rdf:Property ;
-    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:UDIIdentifier ;
-    rdfs:label "has UDI identifier" .
+    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:UDIIdentifier .
 
 ex:belongsToDevice a rdf:Property ;
-    rdfs:domain ex:UDIIdentifier ; rdfs:range ex:UDIDeviceRecord ;
-    rdfs:label "belongs to device record" .
+    rdfs:domain ex:UDIIdentifier ; rdfs:range ex:UDIDeviceRecord .
 
 ex:hasGMDNTerm a rdf:Property ;
-    rdfs:range ex:GMDNTerm ;
-    rdfs:label "has GMDN term" .
+    rdfs:range ex:GMDNTerm .
 
 ex:hasLabeler a rdf:Property ;
-    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:Labeler ;
-    rdfs:label "has labeler" .
+    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:Labeler .
 
 ex:hasStorageCondition a rdf:Property ;
-    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:StorageCondition ;
-    rdfs:label "has storage condition" .
+    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:StorageCondition .
 
 ex:appliesToDevice a rdf:Property ;
-    rdfs:domain ex:StorageCondition ; rdfs:range ex:UDIDeviceRecord ;
-    rdfs:label "applies to device record" .
+    rdfs:domain ex:StorageCondition ; rdfs:range ex:UDIDeviceRecord .
 
 # The two joins that connect a physical marketed device to the regulatory
 # record that authorised it. These are the highest-value edges the UDI
 # ingest adds to the graph.
 
 ex:relatedK510Record a rdf:Property ;
-    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:K510Record ;
-    rdfs:label "cleared under 510(k) or De Novo record" .
+    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:K510Record .
 
 ex:relatedPMARecord a rdf:Property ;
-    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:PMARecord ;
-    rdfs:label "approved under PMA record" .
+    rdfs:domain ex:UDIDeviceRecord ; rdfs:range ex:PMARecord .
 
 # =========================
 # DESIGN ATTRIBUTES
@@ -82,52 +69,36 @@ ex:relatedPMARecord a rdf:Property ;
 # database describes how marketed devices are physically constructed.
 # =========================
 
-ex:isSterile a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "is supplied sterile" .
-ex:requiresSterilizationPriorToUse a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "requires sterilization prior to use" .
+ex:isSterile a rdf:Property ; rdfs:range xsd:boolean .
+ex:requiresSterilizationPriorToUse a rdf:Property ; rdfs:range xsd:boolean .
 ex:sterilizationMethod a rdf:Property ;
-    rdfs:label "sterilization method" ;
     rdfs:comment "e.g. Ethylene Oxide, Radiation, Moist Heat or Steam. Repeatable." .
 
-ex:isSingleUse a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "is single use" .
-ex:isKit a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "is a kit" .
-ex:isCombinationProduct a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "is a combination product" .
-ex:isHCTP a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "is a human cell, tissue or cellular/tissue-based product" .
-ex:isLabeledAsNRL a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "labeled as containing natural rubber latex" .
-ex:isLabeledAsNoNRL a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "labeled as not made with natural rubber latex" .
+ex:isSingleUse a rdf:Property ; rdfs:range xsd:boolean .
+ex:isKit a rdf:Property ; rdfs:range xsd:boolean .
+ex:isCombinationProduct a rdf:Property ; rdfs:range xsd:boolean .
+ex:isHCTP a rdf:Property ; rdfs:range xsd:boolean .
+ex:isLabeledAsNRL a rdf:Property ; rdfs:range xsd:boolean .
+ex:isLabeledAsNoNRL a rdf:Property ; rdfs:range xsd:boolean .
 ex:mriSafetyStatus a rdf:Property ;
-    rdfs:label "MRI safety status" ;
     rdfs:comment "MR Safe, MR Conditional, MR Unsafe, or a statement that labeling contains no MRI safety information." .
 
-ex:isRx a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "is prescription use" .
-ex:isOTC a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "is over-the-counter" .
+ex:isRx a rdf:Property ; rdfs:range xsd:boolean .
+ex:isOTC a rdf:Property ; rdfs:range xsd:boolean .
 ex:isPremarketExempt a rdf:Property ; rdfs:range xsd:boolean ;
     rdfs:label "is premarket exempt" .
 ex:isDirectMarkingExempt a rdf:Property ; rdfs:range xsd:boolean ;
     rdfs:label "is direct marking exempt" .
 
-ex:hasLotOrBatchNumber a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "carries a lot or batch number" .
-ex:hasSerialNumber a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "carries a serial number" .
-ex:hasExpirationDate a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "carries an expiration date" .
+ex:hasLotOrBatchNumber a rdf:Property ; rdfs:range xsd:boolean .
+ex:hasSerialNumber a rdf:Property ; rdfs:range xsd:boolean .
+ex:hasExpirationDate a rdf:Property ; rdfs:range xsd:boolean .
 ex:hasManufacturingDate a rdf:Property ; rdfs:range xsd:boolean ;
     rdfs:label "carries a manufacturing date" .
 ex:hasDonationIdNumber a rdf:Property ; rdfs:range xsd:boolean ;
     rdfs:label "carries a donation identification number" .
 
-ex:deviceCountInBasePackage a rdf:Property ; rdfs:range xsd:integer ;
-    rdfs:label "device count in base package" .
+ex:deviceCountInBasePackage a rdf:Property ; rdfs:range xsd:integer .
 
 # =========================
 # IDENTIFIER AND LABELER FIELDS
@@ -138,21 +109,18 @@ ex:identifierId a rdf:Property ; rdfs:label "UDI identifier value" .
 ex:identifierType a rdf:Property ; rdfs:label "identifier type (Primary / Package / Unit of Use)" .
 ex:issuingAgency a rdf:Property ; rdfs:label "issuing agency (GS1 / HIBCC / ICCBBA)" .
 ex:packageType a rdf:Property ; rdfs:label "package type" .
-ex:quantityPerUnitOfUse a rdf:Property ; rdfs:range xsd:integer ;
-    rdfs:label "quantity per package" .
+ex:quantityPerUnitOfUse a rdf:Property ; rdfs:range xsd:integer .
 ex:unitOfUseId a rdf:Property ; rdfs:label "unit-of-use identifier" .
 ex:dunsNumber a rdf:Property ; rdfs:label "D-U-N-S number" .
 
 ex:gmdnTermCode a rdf:Property ; rdfs:label "GMDN term code" .
 ex:gmdnTermName a rdf:Property ; rdfs:label "GMDN term name" .
 ex:gmdnTermDefinition a rdf:Property ; rdfs:label "GMDN term definition" .
-ex:gmdnImplantable a rdf:Property ; rdfs:range xsd:boolean ;
-    rdfs:label "GMDN term denotes an implantable device" .
+ex:gmdnImplantable a rdf:Property ; rdfs:range xsd:boolean .
 ex:gmdnCodeStatus a rdf:Property ; rdfs:label "GMDN code status (Active / Obsolete)" .
 
 ex:recordStatus a rdf:Property ; rdfs:label "GUDID record status" .
-ex:publicVersionDate a rdf:Property ; rdfs:range xsd:date ;
-    rdfs:label "public version date" .
+ex:publicVersionDate a rdf:Property ; rdfs:range xsd:date .
 
 ex:storageType a rdf:Property ; rdfs:label "storage condition type" .
 ex:storageHighValue a rdf:Property ; rdfs:label "storage range high value" .

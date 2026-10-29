@@ -119,6 +119,9 @@ def transform(src, out, retrieved_at=None):
             cx = (r["COMPLEXITY"] or "").upper()
             pairs = [
                 ("a", "ex:CliaCategorization"),
+                # e.g. "WAIVED: HemoCue B-Glucose System - Glucose"
+                ("rdfs:label", common.label(cx, " - ".join(x for x in (common.norm_text(r["TEST_SYSTEM_NAME"]),
+                                                                        common.norm_text(r["ANALYTE_NAME"])) if x))),
                 ("ex:complexity", common.lit(cx)),
                 ("ex:dateEffective", _date(r["DATE_EFFECTIVE"])),
                 ("ex:specialtyId", common.lit(r["SPECIALTY_ID"])),
@@ -179,6 +182,7 @@ def _selftest():
     assert '"2014-03-18"^^xsd:date' in ttl and '"1993-07-26"^^xsd:date' in ttl
     assert f"ex:relatedK510Record <{iri.k510('K140003')}>" in ttl
     assert 'ex:categorizedBy "CDC"' in ttl
+    assert ttl.count('rdfs:label "WAIVED: ') >= 1 and ttl.count('rdfs:label "HIGH: ') >= 1   # categorizations labelled
     blk = ttl.split(f"<{iri.clia_analyte('335')}>\n", 1)[1].split("\n\n")[0]
     assert "a ex:CliaWaivedAnalyte" in blk
     blk12 = ttl.split(f"<{iri.clia_analyte('12')}>\n", 1)[1].split("\n\n")[0]
