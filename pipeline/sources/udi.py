@@ -156,8 +156,11 @@ def transform(src, out, retrieved_at=None):
                     # GUDID writes the supplement number as digits only ("014"); FDA PMA data
                     # (pma.py, verbatim openFDA supplement_number) writes "S014". Use FDA's form
                     # so the link reaches the PMA supplement node; values that already carry
-                    # the "S" are kept as they are.
-                    if supp.isdigit():
+                    # the "S" are kept as they are. Supplement "000" is GUDID's way of saying the
+                    # original approval, which the base PMA link above already covers.
+                    if supp.isdigit() and int(supp) == 0:
+                        supp = ""
+                    elif supp.isdigit():
                         supp = "S" + supp
                     if supp:      # the specific supplement that covers this device version
                         pairs.append(("ex:relatedPMARecord", _ref(iri.pma(num, supp))))
@@ -292,6 +295,7 @@ def _selftest():
          "premarket_submissions": [{"submission_number": "K123456"},
                                    {"submission_number": "P900001", "supplement_number": "S012"},
                                    {"submission_number": "P900002", "supplement_number": "014"},
+                                   {"submission_number": "P900003", "supplement_number": "000"},
                                    {"submission_number": "DEN140010"}],
          "commercial_distribution_end_date": "2024-05-01",
          "device_sizes": [{"type": "Catheter Gauge", "value": "20", "unit": "Gauge"},
@@ -326,6 +330,9 @@ def _selftest():
     # GUDID's digits-only supplement "014" links to FDA PMA data's "S014" node (as pma.py mints it)
     assert f"<{iri.pma('P900002', 'S014')}>" in text, text
     assert f"<{iri.pma('P900002', '014')}>" not in text
+    # supplement "000" is the original approval: base PMA link only, no supplement node
+    assert f"<{iri.pma('P900003')}>" in text
+    assert f"<{iri.pma('P900003', 'S000')}>" not in text and f"<{iri.pma('P900003', '000')}>" not in text
     assert 'ex:deviceSize "Catheter Gauge: 20 Gauge"' in text and 'Small"' in text
     assert '"2024-05-01"^^xsd:date' in text and 'ex:packageStatus "Not in Commercial Distribution"' in text
     assert "help@example.com" not in text and "555-0100" not in text
