@@ -205,15 +205,64 @@ def norm_text(value):
     return s or None
 
 
-_NA_PART = re.compile(r"^(n/?a|none|null|-+)$", re.I)
+# A placeholder is a value made only of "nothing here" tokens: N/A, NA, N.A., NONE, NULL,
+# UNKNOWN, NO PHONE, "NOT APPLICABLE" (also as FDA's fixed-width cut "NOT AP"), runs of
+# zeros ("0000", "00000") or dashes, joined by spaces or = + / - (e.g. "N/A=NOT APPLICABLE",
+# "0000 N/A"). A value with any other word in it ("N/A MOBILE", "YAN/AN XI ROAD") is real
+# text and is kept whole: placeholders are dropped, never cut out of real text.
+_NA_WORDS = {"NA", "NONE", "NULL", "UNKNOWN", "UNK"}
+_NA_FORMS = [
+    (re.compile(r"\bNOT\s+(A[A-Z]*)"), lambda m: " NA " if "APPLICABLE".startswith(m.group(1)) else m.group(0)),
+    (re.compile(r"\bN\s*/\s*A\b"), lambda m: " NA "),          # N/A (not inside YAN/AN)
+    (re.compile(r"\bN\.A\b\.?"), lambda m: " NA "),            # N.A / N.A.
+    (re.compile(r"\bNO[\s-]?PHONE\b"), lambda m: " NA "),
+]
+_NA_SEP = re.compile(r"[\s=+/:;,.#-]+")
+
+
+def is_placeholder(value):
+    """True when the value only says that there is no value: every word in it is a
+    placeholder token (N/A, NA, NONE, NULL, UNKNOWN, NOT APPLICABLE or a fixed-width cut of
+    it, NO PHONE, a run of zeros) and nothing else; dashes or punctuation alone count too."""
+    s = norm_text(value)
+    if not s:
+        return True
+    s = s.upper()
+    for rx, rep in _NA_FORMS:
+        s = rx.sub(rep, s)
+    toks = [t for t in _NA_SEP.split(s) if t]
+    return all(t in _NA_WORDS or set(t) == {"0"} for t in toks)
+
+
+_PHONE_EXT_NA = re.compile(r"\s*-?\s*X\s*(N\s*/?\s*A|NONE|0+)\s*$", re.I)
+
+
+def clean_value(value):
+    """The value as given (stripped), or None when it is a placeholder (no triple is written)."""
+    if value is None or is_placeholder(value):
+        return None
+    return str(value).strip()
+
+
+def clean_phone(value):
+    """A phone number without a placeholder extension ("3086353033-XN/A" -> "3086353033");
+    None when the number itself is a placeholder ("N/A", "0000000000", "NO-PHONE-XN/A")."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    m = _PHONE_EXT_NA.search(s)
+    if m and m.start() > 0:
+        s = s[:m.start()].strip() or None
+    return clean_value(s)
 
 
 def norm_address(*parts):
-    """Join address lines, dropping placeholder parts such as "N/A"."""
+    """Join address lines, dropping placeholder parts such as "N/A", "0000 N/A" or
+    "N/A=NOT APPLICABLE" (see is_placeholder)."""
     keep = []
     for p in parts:
         s = norm_text(p)
-        if s and not _NA_PART.match(s):
+        if s and not is_placeholder(s):
             keep.append(s)
     return ", ".join(keep) or None
 
@@ -411,6 +460,20 @@ def _selftest():
     assert norm_text("a\n\n b  c ") == "a b c" and norm_text("  ") is None
     assert norm_address("1300 Macarthur Blvd", "N/A") == "1300 Macarthur Blvd"
     assert norm_address("3 Lakes Dr", None) == norm_address("3 Lakes Dr", "n/a")
+    # placeholders found in the X-ray assembler file (v0.0.7 full test N10): dropped whole
+    for v in ("N/A", "N/A=NOT APPLICABLE", "0000 N/A", "NA", "na", "N.A.", "N.A", "NONE", "UNKNOWN",
+              "N/A=NOT AP", "N/A=NOT  A", "N/A+NOT AP", "N/A NOT AP", "NOT APPLICABLE:", "NA/", "N/A/",
+              "00000", "0000000000", "#0", "-", "NO-PHONE"):
+        assert is_placeholder(v) and clean_value(v) is None and norm_address(v) is None, v
+    # real text that merely contains N/A-like letters is kept whole, never cut
+    for v in ("YAN/AN XI ROAD", "N/A MOBILE", "MOBILE N/A", "N/A (OR-2)", "N/A896", "N/AQ", "OB/GYN",
+              "SOLOMON/ANTHONY", "GERONTOLGY RESEASRCH CENTER N/A", "NOT AVAILABLE", "NONE ST", "NA PALI",
+              "100 N A ST", "0 MAIN ST", "NASHVILLE", "N"):
+        assert not is_placeholder(v) and clean_value(v) == v, v
+    assert norm_address("YAN/AN XI ROAD", "0000 N/A") == "YAN/AN XI ROAD"
+    assert clean_phone("3086353033-XN/A") == "3086353033" and clean_phone("(334)953-0393") == "(334)953-0393"
+    assert clean_phone("NO-PHONE-XN/A") is None and clean_phone("N/A") is None and clean_phone("0000000000") is None
+    assert clean_phone("5551234567-X123") == "5551234567-X123" and clean_phone("FAX") == "FAX"
     assert label("K230972", "Ingenia\nElition") == '"K230972: Ingenia Elition"'
     assert label(None, "") is None
     assert outcome_label("R") == "Required Intervention" and outcome_label("Death") == "Death"
