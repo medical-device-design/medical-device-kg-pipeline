@@ -142,7 +142,16 @@ def build(out_dir, tplc, k510, pma, hde, denovo, rh_codes, recall_files, retriev
     st_rh.triples = w.triples
 
     # ---- 2. TPLC premarket and recall layer
-    have_tplc = {s for s, _ in blocks(tplc) if "/id/tplc/" in s and s.count("/") == iri.tplc("ABC").count("/")}
+    # TPLC nodes tplc.ttl already writes, and the year nodes it already labels
+    # ("FRN MDR reports 2020"); every other year node gets its one label here.
+    have_tplc, labelled_year = set(), set()
+    for s, ls in blocks(tplc):
+        if "/id/tplc/" not in s:
+            continue
+        if s.count("/") == iri.tplc("ABC").count("/"):
+            have_tplc.add(s)
+        elif "/year/" in s and any(ln.lstrip().startswith("rdfs:label ") for ln in ls):
+            labelled_year.add(s)
     tot = collections.defaultdict(collections.Counter)                       # code -> counter
     yr = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))   # code -> year -> counter
 
@@ -178,6 +187,7 @@ def build(out_dir, tplc, k510, pma, hde, denovo, rh_codes, recall_files, retriev
                 add(c, r["year"], f"recallClass{cls}Count")
 
     st_t = base.Stats(source="tplc_premarket")
+    year_labels = collections.Counter()
     keys = ["k510DecisionCount", "pmaOriginalCount", "pmaSupplementCount", "deNovoDecisionCount",
             "hdeOriginalCount", "recallCount", "recallClassICount", "recallClassIICount", "recallClassIIICount"]
     with base.TurtleWriter(out_dir / "tplc_premarket.ttl") as w:
@@ -206,11 +216,18 @@ def build(out_dir, tplc, k510, pma, hde, denovo, rh_codes, recall_files, retriev
             st_t.records += 1
             for y in sorted(yr[code]):
                 c = yr[code][y]
-                w.block(iri.tplc_year(code, y), [("a", "ex:TPLCYearStatistic"),
-                                                 ("ex:year", common.gyear_lit(y)),
-                                                 ("ex:relatedTPLC", f"<{node}>")]
+                ynode = iri.tplc_year(code, y)
+                # one rdfs:label per node: tplc.ttl labels the years that have MDR reports
+                # ("FRN MDR reports 2020"); the same pattern names the premarket/recall-only years
+                ylab = None if ynode in labelled_year else common.lit(f"{code} premarket and recall counts {y}")
+                w.block(ynode, [("a", "ex:TPLCYearStatistic"),
+                                ("rdfs:label", ylab),
+                                ("ex:year", common.gyear_lit(y)),
+                                ("ex:relatedTPLC", f"<{node}>")]
                         + [(f"ex:{k}", common.int_lit(c[k])) for k in keys if c[k]])
+                year_labels["labelled here" if ylab else "labelled by tplc.ttl"] += 1
     st_t.triples = w.triples
+    print(f"TPLC year nodes: {dict(year_labels)}")
     return st_rh, st_t, len(rec)
 
 
@@ -238,8 +255,11 @@ def _selftest():
                                  '    ex:supplementNumber "S001" ;\n    ex:decisionDate "2019-06-01"^^xsd:date ;\n'
                                  "    ex:hasProductCode <" + iri.ID + "product-code/jak> .\n\n",
                                  encoding="utf-8")
-        for n in ("t.ttl", "h.ttl", "dn.ttl"):
+        for n in ("h.ttl", "dn.ttl"):
             (d / n).write_text(P, encoding="utf-8")
+        (d / "t.ttl").write_text(P + "<" + iri.tplc_year("JAK", 2019) + ">\n    a ex:MDRStatistic ;\n"
+                                 '    rdfs:label "JAK MDR reports 2019" ;\n    ex:year "2019"^^xsd:gYear .\n\n',
+                                 encoding="utf-8")
         st_rh, st_t, n = build(d, d / "t.ttl", d / "k.ttl", d / "p.ttl", d / "h.ttl", d / "dn.ttl", d / "rh.ttl",
                                [d / "rec.ttl"], retrieved_at="2026-10-21")
         rhttl = (d / "rh_actions_derived.ttl").read_text(encoding="utf-8")
@@ -249,6 +269,13 @@ def _selftest():
         assert 'ex:k510DecisionCount "1"^^xsd:integer' in tp and 'ex:pmaSupplementCount "1"^^xsd:integer' in tp
         assert 'ex:recallClassIICount "1"^^xsd:integer' in tp and "/tplc/jak/year/2020>" in tp
         assert 'rdfs:label "TPLC JAK"' in tp                                       # code missing from tplc.ttl gets a node
+        # one label per year node: 2019 is labelled by tplc.ttl (none added), 2020 is labelled here
+        y19 = tp.split("<" + iri.tplc_year("JAK", 2019) + ">\n", 1)[1].split("\n\n", 1)[0]
+        y20 = tp.split("<" + iri.tplc_year("JAK", 2020) + ">\n", 1)[1].split("\n\n", 1)[0]
+        assert "rdfs:label" not in y19 and "a ex:TPLCYearStatistic" in y19, y19
+        assert y20.count("rdfs:label") == 1 and 'rdfs:label "JAK premarket and recall counts 2020"' in y20, y20
+        blocks_tp = [b for b in tp.split("\n\n") if "a ex:TPLCYearStatistic" in b]
+        assert all(b.count("rdfs:label") <= 1 for b in blocks_tp)
     assert cfr_citations("violates 21 CFR 1040.10 and 1040.11; see 1003.2") == ["1040.10", "1040.11", "1003.2"]
     print("derived_views.py self-test PASSED")
 
