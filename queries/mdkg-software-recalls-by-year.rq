@@ -1,0 +1,19 @@
+#+ summary: Software-, firmware- or cybersecurity-related medical device recalls per year and class, matched on FDA's root cause or on the reason for recall.
+#+ tags:
+#+   - medical-device-kg
+
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+
+SELECT ?year ?class (COUNT(DISTINCT ?r) AS ?recalls) WHERE {
+  ?r a ex:RecallRecord ;
+     ex:recallInitiationDate ?d .
+  OPTIONAL { ?r ex:recallClassification ?c0 }
+  BIND(COALESCE(?c0, "unclassified") AS ?class)
+  BIND(YEAR(?d) AS ?year)
+  FILTER(?year >= 2018)
+  { ?r ex:rootCauseDescription ?t FILTER(CONTAINS(LCASE(?t), "software")) }
+  UNION
+  { ?r ex:reasonForRecall ?t FILTER(REGEX(?t, "software|cyber|firmware", "i")) }
+}
+GROUP BY ?year ?class
+ORDER BY ?year ?class
