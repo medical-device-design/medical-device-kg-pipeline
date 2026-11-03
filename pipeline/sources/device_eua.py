@@ -47,6 +47,7 @@ MINTERS (pipeline/iri.py):
     iri.eua_document(key): a document linked from an EUA (letter, fact sheet, IFU, summary,
         notice), keyed on FDA's media id when the link is www.fda.gov/media/<id>/download, else
         sha1(url)[:16].  iri.eua_document('media_165581') -> .../id/eua-document/media_165581
+        Provenance: ex:sourceRecordId = that key, ex:sourceUrl = the FDA EUA page that lists it.
 """
 import os
 import re
@@ -565,7 +566,8 @@ def transform(src, out, retrieved_at=None):
                 if dk not in docs:
                     # a bare link text such as "IFU" is labeled with the product it belongs to
                     lab = title or (f"{text} - {product}" if text and len(text) < 40 else text)
-                    docs[dk] = (url, lab, typ or doc_type(text, title, url))
+                    # provenance: the FDA EUA page that first lists the document
+                    docs[dk] = (url, lab, typ or doc_type(text, title, url), pg["final_url"])
                 pairs.append(("ex:hasEUADocument", f"<{iri.eua_document(dk)}>"))
             pairs += common.provenance(DATASET, key, source_url=pg["final_url"], retrieved_at=retrieved_at)
             w.block(iri.device_eua(key), list(dict.fromkeys(p for p in pairs if p[1] is not None)))
@@ -574,9 +576,10 @@ def transform(src, out, retrieved_at=None):
             by_page[pg["key"]] = by_page.get(pg["key"], 0) + 1
             by_type[lt] = by_type.get(lt, 0) + 1
         for dk in sorted(docs):
-            url, lab, typ = docs[dk]
+            url, lab, typ, page_url = docs[dk]
             w.block(iri.eua_document(dk), [("a", "ex:EUADocument"), ("rdfs:label", common.lit(lab or typ)),
-                                           ("ex:documentType", common.lit(typ)), ("ex:url", common.lit(url))])
+                                           ("ex:documentType", common.lit(typ)), ("ex:url", common.lit(url))]
+                    + common.provenance(DATASET, dk, source_url=page_url, retrieved_at=retrieved_at))
         for nf in sorted(firms):
             w.block(iri.firm_name(nf), common.firm_name_pairs(nf, firms[nf]))
         for pc in sorted(hub_codes):
@@ -678,6 +681,13 @@ def _selftest():
     assert 'ex:euaIssueDate "2014-08-05"^^xsd:date' in ttl and 'ex:euaLastUpdatedDate "2014-10-10"^^xsd:date' in ttl
     assert f"ex:letterOfAuthorization <{iri.eua_document('media_89984')}>" in ttl
     assert 'ex:euaListingType "individual EUA"' in ttl
+    # every record carries provenance: EUA rows and the EUA documents they link to
+    blocks = [b for b in ttl.split("\n\n") if b.startswith("<")]
+    recs = [b for b in blocks if "\n    a ex:DeviceEUA" in b or "\n    a ex:EUADocument" in b]
+    assert len(recs) == 5 + rep["documents"] and all(f'ex:sourceDataset "{DATASET}"' in b for b in recs), recs
+    doc = next(b for b in recs if b.startswith(f"<{iri.eua_document('media_156954')}>"))
+    assert ('ex:sourceRecordId "media_156954"' in doc and f'ex:sourceUrl "{FDA}/in-vitro-diagnostics-euas-antigen"' in doc
+            and 'ex:retrievedAt "2026-10-28"^^xsd:date' in doc), doc
     print(f"device_eua.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
 
