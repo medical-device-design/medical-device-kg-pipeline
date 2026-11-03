@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-reference_fallback.py -- give every referenced 510(k), PMA, HDE, De Novo and regulation node a
-name (v0.0.7 full test N5-N7), modeled on product_code_fallback.py.
+reference_fallback.py -- give every referenced 510(k), PMA, HDE, De Novo, regulation and cited
+21 CFR section/part node a name (v0.0.7 full test N5-N7, re-test P5z/P6z), modeled on
+product_code_fallback.py.
 
 Records link to submission and regulation nodes that FDA's own downloads do not contain:
 De Novo decisions cite 510(k) numbers outside the openFDA 510(k) file (K033607, BR220737),
@@ -15,7 +16,11 @@ and an ex:dataQualityNote.
 
 Links checked (object IRIs): ex:hasRegulationNumber, ex:relatedK510Record, ex:relatedPMARecord,
 ex:relatedHDE (PAS, 522, UDI, MAUDE), ex:mentionsK510Record, ex:mentionsPMARecord (warning
-letters, safety communications) and ex:listedSubmission (AI-enabled device list).
+letters, safety communications), ex:listedSubmission (AI-enabled device list) and
+ex:citesCfrSection, ex:citesCfrPart (warning letters, guidance documents). A cited 21 CFR section
+or part that is not in the current eCFR (for example a Quality System regulation section retired
+when the QMSR took effect on February 2, 2026, still cited by older letters and guidance) gets a
+node typed ex:CFRTitle21Section / ex:CfrPart with its number and a label that says so.
 An IRI is resolved when any input file writes a block for it that has an rdfs:label. All inputs
 are streamed (any size; files over 2 GB are split into byte ranges and read in parallel).
 Files named *_text.ttl and earlier fallback outputs are not read.
@@ -36,9 +41,15 @@ import common   # noqa: E402
 import base     # noqa: E402
 
 PREDICATES = ("hasRegulationNumber", "relatedK510Record", "relatedPMARecord", "relatedHDE",
-              "mentionsK510Record", "mentionsPMARecord", "listedSubmission")
-KINDS = ("k510", "pma", "hde", "de-novo", "regulation")
-_PREFIX = {k: (iri.ID + k + "/").encode() for k in KINDS + ("cfr-section",)}   # cfr-section: labels only
+              "mentionsK510Record", "mentionsPMARecord", "listedSubmission", "citesCfrSection", "citesCfrPart")
+KINDS = ("k510", "pma", "hde", "de-novo", "regulation", "cfr-section", "cfr-part")
+_PREFIX = {k: (iri.ID + k + "/").encode() for k in KINDS}
+# the Quality System regulation sections of 21 CFR part 820 (1996-2026); the QMSR, effective
+# February 2, 2026, replaced them, so the current eCFR no longer has most of these numbers
+QS_REG_SECTIONS = {"820." + s for s in (
+    "1 3 5 20 22 25 30 40 50 60 65 70 72 75 80 86 90 100 120 130 140 150 160 170 180 181 184 186 "
+    "198 200 250").split()}
+QMSR_DATE = "February 2, 2026"
 _REF = re.compile(rb"^\s+ex:(" + b"|".join(p.encode() for p in PREDICATES) + rb") <([^>]+)>")
 _SUBJ = re.compile(rb"^<([^>]+)>")
 CHUNK = 2_000_000_000
@@ -59,6 +70,8 @@ SOURCE_PHRASE = [
     ("safety_comms", "FDA safety communication"), ("devices_fda", "Devices@FDA record"),
     ("standards", "FDA recognized standard"), ("legacy_mdr", "FDA legacy MDR report"),
     ("medsun", "MedSun report"), ("asr", "FDA alternative summary report"),
+    ("guidance", "FDA guidance document"), ("device_eua", "FDA emergency use authorization record"),
+    ("shortages", "FDA device shortage list entry"),
 ]
 # what each kind is and which FDA data lacks it
 KIND_INFO = {
@@ -67,6 +80,8 @@ KIND_INFO = {
     "hde": ("ex:HumanitarianDeviceExemption", "HDE", "not in FDA HDE data", "FDA HDE database"),
     "de-novo": ("ex:DeNovoRecord", "De Novo", "not in FDA De Novo data", "FDA De Novo database"),
     "regulation": ("ex:RegulationNumber", "21 CFR", "not in the current 21 CFR", "eCFR title 21 bulk XML"),
+    "cfr-section": ("ex:CFRTitle21Section", "21 CFR", "not in the current eCFR", "eCFR title 21 bulk XML"),
+    "cfr-part": ("ex:CfrPart", "21 CFR part", "not in the current eCFR", "eCFR title 21 bulk XML"),
 }
 
 
@@ -153,8 +168,10 @@ def number_of(kind, t):
     """IRI -> the number as FDA writes it ('.../k510/k033607' -> 'K033607',
     '.../pma/p123/supplement/s001' -> 'P123 supplement S001', '.../regulation/862_1354' -> '862.1354')."""
     rest = t[len(iri.ID + kind + "/"):]
-    if kind == "regulation":
+    if kind in ("regulation", "cfr-section"):
         return rest.replace("_", ".")
+    if kind == "cfr-part":
+        return rest
     parts = rest.split("/")
     if len(parts) == 3 and parts[1] == "supplement":
         return f"{parts[0].upper()} supplement {parts[2].upper()}"
@@ -203,7 +220,7 @@ def build(inputs, out_dir, date=None, workers=4):
                     f"{' of ' + date if date else ''} has no record with this number. "
                     "This node only names the reference; it carries no FDA record content.")
             pairs = [("a", cls)]
-            writer, key = w, kind
+            writer, key, verb = w, kind, "referenced by"
             m = re.search(r"/supplement/(\d+)$", t)
             fda_form = t[:m.start(1)] + "s" + m.group(1) if m else None
             if kind in ("pma", "hde") and "/supplement/" not in t and t in bases_with_supplements:
@@ -225,8 +242,27 @@ def build(inputs, out_dir, date=None, workers=4):
                             "or classification paragraph in it, so no regulation-number record is built from it.")
                     pairs.append(("ex:hasCFRSection", f"<{sec}>"))
                     key = "regulation (CFR section exists)"
+            elif kind in ("cfr-section", "cfr-part"):
+                verb = "cited by"
+                where = (f"the {data}{' of ' + date if date else ''} has no "
+                         f"{'section' if kind == 'cfr-section' else 'part'} with this number")
+                note = f"Cited by {by} data, but {where}."
+                if kind == "cfr-section":
+                    pairs.append(("ex:sectionNumber", common.lit(num)))
+                    part = iri.cfr_part(num.split(".")[0])
+                    if part in labelled:
+                        pairs.append(("ex:inCfrPart", f"<{part}>"))
+                    if num in QS_REG_SECTIONS:
+                        lacking += f": a Quality System regulation section retired with the QMSR on {QMSR_DATE}"
+                        note += (f" 21 CFR {num} is a section of the Quality System regulation, which the Quality "
+                                 f"Management System Regulation (QMSR) replaced on {QMSR_DATE}; documents issued "
+                                 "before then cite it.")
+                        key = "cfr-section (Quality System regulation)"
+                else:
+                    pairs.append(("ex:cfrPartNumber", common.lit(num)))
+                note += " This node only names the citation; it carries no regulation text."
             writer.block(t, pairs + [
-                ("rdfs:label", common.lit(f"{what} {num} (referenced by {by}; {lacking})")),
+                ("rdfs:label", common.lit(f"{what} {num} ({verb} {by}; {lacking})")),
                 ("ex:dataQualityNote", common.lit(note)),
             ])
             counts[key] += 1
@@ -250,7 +286,25 @@ def _selftest():
         (d / "cfr.ttl").write_text(P + f"<{iri.regulation('880.5725')}>\n    a ex:RegulationNumber ;\n"
                                    '    rdfs:label "Infusion pump" .\n\n'
                                    f"<{iri.cfr_section('610.40')}>\n    a ex:CFRTitle21Section ;\n"
-                                   '    rdfs:label "Test requirements" .\n\n', encoding="utf-8")
+                                   '    rdfs:label "Test requirements" .\n\n'
+                                   f"<{iri.cfr_part('820')}>\n    a ex:CfrPart ;\n"
+                                   '    rdfs:label "QUALITY MANAGEMENT SYSTEM REGULATION" .\n\n', encoding="utf-8")
+        # warning letter and guidance citations: a QS regulation section retired with the QMSR (820.30),
+        # a section and a part the eCFR does not have, a resolved section/part, a PMA-shaped number
+        (d / "warning_letters.ttl").write_text(P + f"<{iri.ID}warning-letter/1>\n    a ex:WarningLetter ;\n"
+                                               '    rdfs:label "Warning letter 1" ;\n'
+                                               f"    ex:mentionsK510Record <{iri.k510('K111111')}> ;\n"
+                                               f"    ex:mentionsPMARecord <{iri.pma('P017333')}> ;\n"
+                                               f"    ex:citesCfrSection <{iri.cfr_section('820.30')}> ;\n"
+                                               f"    ex:citesCfrSection <{iri.cfr_section('610.40')}> ;\n"
+                                               f"    ex:citesCfrPart <{iri.cfr_part('820')}> ;\n"
+                                               f"    ex:citesCfrPart <{iri.cfr_part('90')}> .\n\n", encoding="utf-8")
+        (d / "guidance.ttl").write_text(P + f"<{iri.ID}guidance-document/g>\n    a ex:GuidanceDocument ;\n"
+                                        '    rdfs:label "Guidance G" ;\n'
+                                        f"    ex:citesCfrSection <{iri.cfr_section('820.30')}> ;\n"
+                                        f"    ex:citesCfrSection <{iri.cfr_section('5.37')}> .\n\n"
+                                        f"<{iri.cfr_section('820.30')}>\n    a ex:CFRTitle21Section ;\n"
+                                        '    ex:sectionNumber "820.30" .\n\n', encoding="utf-8")
         (d / "classification.ttl").write_text(P + f"<{iri.ID}classification/x>\n    a ex:ProductClassificationRecord ;\n"
                                               '    rdfs:label "X" ;\n'
                                               f"    ex:hasRegulationNumber <{iri.regulation('610.40')}> .\n\n",
@@ -282,8 +336,27 @@ def _selftest():
             CHUNK = old
         ttl = (d / OUT_NAME).read_text(encoding="utf-8")
         fmt = (d / OUT_FORMAT_NAME).read_text(encoding="utf-8")
-    assert st["fallback"] == {"k510": 2, "pma": 2, "hde": 1, "regulation": 1, "regulation (CFR section exists)": 1,
-                              "pma supplement-number format": 1}, st
+    assert st["fallback"] == {"k510": 2, "pma": 3, "hde": 1, "regulation": 1, "regulation (CFR section exists)": 1,
+                              "pma supplement-number format": 1, "cfr-section (Quality System regulation)": 1,
+                              "cfr-section": 1, "cfr-part": 1}, st
+    assert st["links"]["citesCfrSection"] == 4 and st["links"]["citesCfrPart"] == 2, st
+    assert st["links"]["mentionsK510Record"] == 1 and st["links"]["mentionsPMARecord"] == 1, st
+    # 21 CFR citations the current eCFR does not have
+    sec = ttl.split(f"<{iri.cfr_section('820.30')}>\n", 1)[1].split("\n\n")[0]
+    assert sec.startswith("    a ex:CFRTitle21Section ;") and 'ex:sectionNumber "820.30"' in sec, sec
+    assert f"ex:inCfrPart <{iri.cfr_part('820')}>" in sec, sec
+    assert ('rdfs:label "21 CFR 820.30 (cited by FDA guidance document and FDA warning letter; not in the current '
+            'eCFR: a Quality System regulation section retired with the QMSR on February 2, 2026)"') in sec, sec
+    assert "Quality Management System Regulation (QMSR) replaced on February 2, 2026" in sec, sec
+    assert ('rdfs:label "21 CFR 5.37 (cited by FDA guidance document; not in the current eCFR)"' in ttl
+            and "ex:inCfrPart" not in ttl.split(f"<{iri.cfr_section('5.37')}>\n", 1)[1].split("\n\n")[0])
+    part = ttl.split(f"<{iri.cfr_part('90')}>\n", 1)[1].split("\n\n")[0]
+    assert part.startswith("    a ex:CfrPart ;") and 'ex:cfrPartNumber "90"' in part, part
+    assert 'rdfs:label "21 CFR part 90 (cited by FDA warning letter; not in the current eCFR)"' in part, part
+    assert "eCFR title 21 bulk XML of 2026-10-29 has no part with this number" in part, part
+    assert f"\n<{iri.cfr_section('610.40')}>\n" not in ttl and f"\n<{iri.cfr_part('820')}>\n" not in ttl  # resolved
+    # a PMA-shaped number in a warning letter that FDA PMA data lacks is named, not dropped
+    assert 'rdfs:label "PMA P017333 (referenced by FDA warning letter; not in FDA PMA data)"' in ttl, ttl
     # a supplement cited as "001" while FDA PMA data has "S001": separate file, says so
     assert f"<{iri.pma('P200001', '001')}>" in fmt and f"<{iri.pma('P200001', '001')}>" not in ttl, fmt
     assert ('rdfs:label "PMA P200001 supplement 001 (referenced by GUDID device record; '
@@ -303,10 +376,12 @@ def _selftest():
     assert "K111111" not in ttl and "880_5725" not in ttl and "K999999" not in ttl     # resolved / text file
     blocks = [b for b in ttl.split("\n\n") if b.startswith("<")]
     blocks += [b for b in fmt.split("\n\n") if b.startswith("<")]
-    assert len(blocks) == 8 and all(b.count("rdfs:label") == 1 and "ex:dataQualityNote" in b for b in blocks)
+    assert len(blocks) == 12 and all(b.count("rdfs:label") == 1 and "ex:dataQualityNote" in b for b in blocks)
+    assert all(b.split("ex:dataQualityNote ", 1)[1].startswith('"Cited by ') for b in blocks)
     assert f"<{iri.k510('K033607')}>\n    a ex:K510Record ;" in ttl
-    assert st["fallback_without_any_block"] == {"k510": 2, "pma": 2, "hde": 1, "regulation (CFR section exists)": 1,
-                                                "pma supplement-number format": 1}, st
+    assert st["fallback_without_any_block"] == {"k510": 2, "pma": 3, "hde": 1, "regulation (CFR section exists)": 1,
+                                                "pma supplement-number format": 1, "cfr-section": 1,
+                                                "cfr-part": 1}, st
     print(f"reference_fallback.py self-test PASSED ({st}).")
 
 
