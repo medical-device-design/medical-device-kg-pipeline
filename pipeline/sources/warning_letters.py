@@ -23,7 +23,8 @@ LETTER PAGES
 ------------
 Each kept letter page is fetched once (1 request/second, cached under pages/). From the page we keep
 ONLY: the MARCS-CMS number, the "Product:" field, the firm's postal address (structured address spans
-of the recipient block), FEI number(s), 510(k)/De Novo and PMA numbers, three-letter product codes
+of the recipient block), FEI number(s), 510(k)/De Novo and PMA numbers (except numbers FDA cannot
+have issued, such as firm document numbers shaped like a PMA number; see possible_number), three-letter product codes
 introduced by "product code", and the 21 CFR sections/parts cited. The letter body, the recipient name
 and title, signatories, phone numbers and e-mail addresses are NEVER stored.
 
@@ -45,6 +46,7 @@ import json
 import os
 import re
 import sys
+from datetime import date
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -87,8 +89,10 @@ _PC = re.compile(r"(?<![Uu]niversal )(?i:product\s+codes?)\s*(?:\(s\))?\s*[:#]?\
 _CFR = re.compile(r"21\s*C\.?\s*F\.?\s*R\.?\s*(?:§+\s*|[Pp]arts?\s+|[Ss]ections?\s+|[Ss]ec\.\s*)?"
                   r"((?:\d{1,4}(?:\.\d{1,4})?(?:\s*\([a-zA-Z0-9]{1,4}\))*)"
                   r"(?:\s*(?:,|;|\band\b|\bor\b|,\s*and|,\s*or|through|-)\s*(?:§+\s*)?"
-                  # a following "21 CFR ..." or "21 U.S.C. ..." starts a new citation, not another section
-                  r"(?:\d{1,4}(?:\.\d{1,4})?(?!\d|\s*(?:C\.?\s*F\.?\s*R|U\.?\s*S\.?\s*C))(?:\s*\([a-zA-Z0-9]{1,4}\))*"
+                  # a following "21 CFR ..." or "21 U.S.C. ..." starts a new citation, not another section;
+                  # "90 Fed. Reg. 25889" / "53 FR 23872" is a Federal Register volume, never a CFR part
+                  r"(?:\d{1,4}(?:\.\d{1,4})?(?!\d|\s*(?:C\.?\s*F\.?\s*R|U\.?\s*S\.?\s*C|Fed\.?\s*Reg|F\.?\s*R\b))"
+                  r"(?:\s*\([a-zA-Z0-9]{1,4}\))*"
                   r"|\([a-zA-Z0-9]{1,4}\)))*)")
 _CFR_TOKEN = re.compile(r"(?<![\w.(])(\d{1,4})(?:\.(\d{1,4}))?")
 
@@ -190,6 +194,24 @@ def _cfr_refs(text):
     return sorted(secs, key=key), sorted(parts, key=int)
 
 
+_FIRST_YEAR = 76     # the 510(k) and PMA programs began in 1976 (Medical Device Amendments)
+
+
+def possible_number(num, this_year=None):
+    """False only for a number FDA cannot have issued: a year part after the current year (and
+    before 1976), or a PMA sequence of 1000 or more (FDA numbers PMAs P<yy><nnnn> per year and has
+    never reached 100 in a year; firm document numbers such as "P017333; Rev. B" look like PMA
+    numbers). A number that is merely missing from FDA data is kept; reference_fallback.py names it."""
+    m = re.match(r"^(K|DEN|P)(\d{2})(\d{4})$", num or "")
+    if not m:
+        return False
+    yy = int(m.group(2))
+    cur = (this_year if this_year is not None else date.today().year) % 100
+    if cur < yy < _FIRST_YEAR:
+        return False
+    return not (m.group(1) == "P" and int(m.group(3)) >= 1000)
+
+
 def parse_letter(page):
     """Letter page HTML -> dict of the few fields we keep (never the body text)."""
     a = page.find('role="main"')
@@ -223,8 +245,11 @@ def parse_letter(page):
     for m in _FEI.finditer(flat):
         fei += [x for x in re.findall(r"\d{7,10}", m.group(1)) if x not in fei]
     out["fei"] = fei
-    out["k510"] = sorted(set(_K510.findall(flat)))
-    out["pma"] = sorted({p for p, _ in _PMA.findall(flat)})
+    k510 = set(_K510.findall(flat))
+    pma = {p for p, _ in _PMA.findall(flat)}
+    out["k510"] = sorted(k for k in k510 if possible_number(k))
+    out["pma"] = sorted(p for p in pma if possible_number(p))
+    out["impossible_numbers"] = sorted((k510 | pma) - set(out["k510"]) - set(out["pma"]))
     pcs = set()
     for m in _PC.finditer(flat):
         for code in re.findall(r"\b[A-Z]{3}\b", m.group(1)):
@@ -378,6 +403,9 @@ def transform(src, out, retrieved_at=None):
                 counts["with_fei"] += bool(fei)
                 counts["with_pc"] += bool(d["product_codes"])
                 counts["with_sub"] += bool(d["k510"] or d["pma"])
+                # numbers FDA cannot have issued (firm document numbers shaped like a PMA number): not linked
+                counts["impossible_numbers_dropped"] = (counts.get("impossible_numbers_dropped", 0)
+                                                        + len(d["impossible_numbers"]))
                 counts["with_cfr"] += bool(d["cfr_sections"] or d["cfr_parts"])
             if not fei and name:
                 nf = normalize_org(name)
@@ -513,6 +541,21 @@ def _selftest():
     s, p = _cfr_refs("21 CFR 820.198(a), (b) and 820.100; 21 C.F.R. Part 803; 21 CFR 801.20(a)(1)"
                      " and 21 U.S.C. 351(h)")
     assert s == ["801.20", "820.100", "820.198"] and p == ["801", "803", "820"], (s, p)
+    # a Federal Register volume after a CFR citation is not a CFR part (was part 90 in the 2026-10-29 build)
+    s, p = _cfr_refs("See 21 CFR 888.2910(b)(2); 90 Fed. Reg. 25889, 25890 (June 2025). 21 CFR 820.30, 53 FR 23872")
+    assert s == ["820.30", "888.2910"] and p == ["820", "888"], (s, p)
+    # sections retired with the QMSR (820.30 ...) are still extracted as cited; reference_fallback.py names them
+    assert _cfr_refs("as required by 21 CFR 820.30(a) and 820.198")[0] == ["820.30", "820.198"]
+    # a firm document number shaped like a PMA number (P + 6 digits, e.g. "P017333; Rev. B") is dropped:
+    # FDA never issued a PMA sequence of 1000 or more in a year. A possible number that FDA data lacks
+    # (K113091, P870050) is kept; reference_fallback.py names it.
+    d2 = parse_letter('<div role="main"><p>under "Design Verification Protocol" (P017333; Rev. B), '
+                      'K113091, P870050/S012, DEN170029, K995555 and K401234.</p></div>')
+    assert d2["pma"] == ["P870050"] and d2["k510"] == ["DEN170029", "K113091", "K995555"], d2
+    assert d2["impossible_numbers"] == ["K401234", "P017333"], d2
+    assert possible_number("P990010") and possible_number("P010068") and possible_number("K261234", 2026)
+    assert not possible_number("P011000") and not possible_number("K271234", 2026) and not possible_number("P750001", 2026)
+    assert not possible_number("KO12383") and possible_number("K761234", 2026)
     with tempfile.TemporaryDirectory() as t:
         t = Path(t)
         (t / "pages").mkdir()
