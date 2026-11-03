@@ -177,9 +177,12 @@ def transform(src, out, retrieved_at=None):
             pairs += common.provenance(DATASET, pc, source_url=DETAIL_URL.format(pc), retrieved_at=retrieved_at)
             w.block(iri.radiation_product_classification(pc), pairs)
             for n, (title, url) in enumerate(d["guidance"], 1):
+                # provenance: the product-code page that lists the guidance (record id "<code>/guidance/<n>")
                 w.block(guidance_iri(pc, n), [("a", "ex:GuidanceDocument"),
                                               ("rdfs:label", common.lit(title or url)),
-                                              ("ex:url", common.lit(url))])
+                                              ("ex:url", common.lit(url))]
+                        + common.provenance(DATASET, f"{pc}/guidance/{n}", source_url=DETAIL_URL.format(pc),
+                                            retrieved_at=retrieved_at))
             st.records += 1
         for pc in sorted(hubs):
             w.block(iri.product_code(pc), [("a", "ex:ProductCode"), ("ex:productCode", common.lit(pc))])
@@ -306,6 +309,13 @@ def _selftest():
     assert 'ex:definition "A laser product assembled or manufactured before August 1, 1976"' in ttl
     assert 'ex:annualReportsRequired "false"^^xsd:boolean' in ttl
     assert 'rdfs:label "EAP: unit, x-ray, intraoral"' in ttl and "a ex:GuidanceDocument" in ttl
+    # every record carries provenance, including the guidance documents listed on a code's page
+    typed = [b for b in ttl.split("\n\n") if b.startswith("<") and ("\n    a ex:GuidanceDocument" in b
+                                                                   or "\n    a ex:RadiationProductClassification" in b)]
+    gd = [b for b in typed if "\n    a ex:GuidanceDocument" in b]
+    assert gd and len(typed) == 2 + len(gd), typed
+    assert all(f'ex:sourceDataset "{DATASET}"' in b and 'ex:retrievedAt "2026-10-12"^^xsd:date' in b for b in typed), typed
+    assert 'ex:sourceRecordId "EAP/guidance/1"' in gd[0] and f'ex:sourceUrl "{DETAIL_URL.format("EAP")}"' in gd[0], gd
     print(f"rh_codes.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
 
