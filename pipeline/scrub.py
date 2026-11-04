@@ -58,7 +58,7 @@ dates after DOB wording, unlabelled phone- and SSN-shaped numbers, and names aft
                   Deliberately over-removes: a second number in a list
                   ("LOT 123-45-6789, 123-45-6790") is removed too.
   title + name    a word after a title is now a name unless it is in _STOP or
-                  in scrub_verbs.txt (dictionary words ending in ED / ING / LY);
+                  in scrub_verbs_1..4.txt (dictionary words ending in ED / ING / LY);
                   before, ANY 6+ letter word with those endings was taken for a
                   verb, which let surnames such as BRADLEY or KEATING through.
                   Also: a dotted title before a digit-preceded MR ("3 MR. X")
@@ -187,10 +187,16 @@ _STOP_CORE = frozenset(_STOP)       # the hand-picked words only (shown as conte
 _WORDS_FILE = __import__("os").path.join(__import__("os").path.dirname(__file__), "scrub_words.txt")
 with open(_WORDS_FILE, encoding="utf-8") as _fh:
     _STOP |= {w for ln in _fh if not ln.startswith("#") for w in ln.split()}
-# dictionary verb / adverb forms (ED / ING / LY, 6+ letters); see the header of scrub_verbs.txt
-_VERBS_FILE = __import__("os").path.join(__import__("os").path.dirname(__file__), "scrub_verbs.txt")
-with open(_VERBS_FILE, encoding="utf-8") as _fh:
-    _VERBS = {w for ln in _fh if not ln.startswith("#") for w in ln.split()}
+# dictionary verb / adverb forms (ED / ING / LY, 6+ letters), split over scrub_verbs_1.txt ...
+# scrub_verbs_4.txt next to this file; see the header of scrub_verbs_1.txt
+_VERBS_FILES = sorted(__import__("glob").glob(__import__("os").path.join(
+    __import__("os").path.dirname(__file__), "scrub_verbs_[0-9].txt")))
+if len(_VERBS_FILES) != 4:
+    raise FileNotFoundError(f"scrub.py needs scrub_verbs_1.txt ... scrub_verbs_4.txt, found {_VERBS_FILES}")
+_VERBS = set()
+for _vf in _VERBS_FILES:
+    with open(_vf, encoding="utf-8") as _fh:
+        _VERBS |= {w for ln in _fh if not ln.startswith("#") for w in ln.split()}
 _STOP_SHORT_INITIALS = {"ON", "OF", "IN", "IS", "AT", "AS", "TO", "NO", "OR", "AN", "BY", "IT", "NOT", "ARE", "WAS",
                         "AND", "THE", "FOR", "UNK", "NA", "WERE", "HAS", "HAD", "BE", "WE", "ALL", "ANY", "SEE", "USE"}
 _STREET_DEVICE = {"USB", "FLASH", "DISK", "HARD", "THUMB", "MOTOR", "GEAR", "CD", "DVD", "TAPE", "BELT", "SHAFT", "ONE",
