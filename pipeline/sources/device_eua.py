@@ -30,7 +30,21 @@ is an individual physician); such a holder gets no literal and no firm node, and
 counted in device_eua.report.json as holders_withheld_as_person_names.
 
 WHAT FDA DOES NOT PUBLISH ON THESE PAGES: the EUA number (EUA200001 ...). It appears only
-inside the letters (PDF), which are linked, not read. Status is therefore taken from the
+inside the letters (PDF). fetch_letters() downloads each row's letter once (the letter of
+authorization; for a row without one, its first revision/amendment or revocation letter),
+1 request per second, into letters/ under the download folder, reads the first pages with
+pdftotext (poppler-utils; a small pure-Python reader is the fallback) and keeps only the
+EUA number(s) and the letter date in eua_letters.tsv (doc key, status, EUA numbers, letter
+date, checked date). The letter text itself is never stored, and nothing about the persons
+a letter is addressed to or signed by is read out. transform() reads eua_letters.tsv when
+present and writes ex:euaNumber on the ex:DeviceEUA row (the number the letter is about:
+the one after "Re:" or "EUA Number", else the first one cited) and ex:documentDate on the
+ex:EUADocument (the date at the head of the letter, before the salutation). Letters on
+www.fda.gov and wcms-internet.fda.gov are fetched from fda.gov; letters FDA links only as a copy in
+its official web archive (Archive-It collection 7993, or a web.archive.org snapshot linked from
+fda.gov; PI approval of 2026-11-03) are read from that archive through _archive.Fetcher (raw
+capture, at least 3 s between requests, backoff on 429), cached under letters/archive/. Any other
+host is recorded as "skipped-host". Status is therefore taken from the
 page and table a row sits in: "authorized" (current tables), "revoked" (historical page and
 the revoked FFR page, with the revocation date when shown), "no longer authorized",
 "withdrawn" or "removed from appendix" (tables FDA labels that way).
@@ -68,6 +82,7 @@ for _p in (_SRC_DIR, _PIPELINE):
 import iri        # noqa: E402
 import common     # noqa: E402
 import base       # noqa: E402
+import _archive   # noqa: E402
 from identity import normalize_org   # noqa: E402
 
 NAME = "device_eua"
@@ -182,6 +197,190 @@ def fetch(dest):
     if errors:
         raise RuntimeError(f"{len(errors)} EUA pages could not be fetched: {errors}")
     return man
+
+
+# ===========================================================================
+#  EUA numbers from the letters (PDF read once; only number(s) and date kept)
+# ===========================================================================
+LETTERS = "eua_letters.tsv"
+LETTER_HOSTS = ("https://www.fda.gov/", "https://wcms-internet.fda.gov/", "http://wcms-internet.fda.gov/")
+_LETTER_TYPES = ("Revision, Amendment or Clarification Letter", "Revocation Letter")
+_EUA_NO = re.compile(r"\bEUA\s*[-#:]?\s*(\d{2})[-\s]?(\d{4})(?!\d)")
+_EUA_LABELED = re.compile(r"(?i)(?:\bRe\s*:|\bEUA\s*(?:Number|No\.|#))\s*:?\s*(?:EUA\s*[-#:]?\s*)?"
+                          r"(\d{2})[-\s]?(\d{4})(?!\d)")
+
+
+def letter_for(rec):
+    """(url, kind) of the letter read for a row: its letter of authorization, else its first
+    revision/amendment or revocation letter, else None."""
+    if rec.get("letter"):
+        return rec["letter"][0], "letter of authorization"
+    for url, text, title, typ in rec.get("docs") or []:
+        if (typ or doc_type(text, title, url)) in _LETTER_TYPES:
+            return url, "other letter"
+    return None
+
+
+def eua_numbers(text):
+    """-> (primary EUA number or None, [all distinct EUA numbers in order]). Primary is the one
+    after "Re:" / "EUA Number", else the first cited."""
+    allnums = list(dict.fromkeys(f"EUA{a}{b}" for a, b in _EUA_NO.findall(text or "")))
+    lab = _EUA_LABELED.search(text or "")
+    primary = f"EUA{lab.group(1)}{lab.group(2)}" if lab else (allnums[0] if allnums else None)
+    if primary and primary not in allnums:
+        allnums.insert(0, primary)
+    return primary, allnums
+
+
+def letter_date(text):
+    """The date at the head of a letter (before the salutation), if clearly stated."""
+    t = text or ""
+    m = re.search(r"\bDear\b", t)
+    head = t[:m.start()] if m else t[:1500]
+    # a date on a line of its own is the letter's date; an archived letter page may print a notice
+    # with another date above the letter ("As of June 23, 2010, the EUAs have been terminated ...")
+    alone = re.search(r"(?m)^[ \t]*(" + _LONG_DATE.pattern + r")[ \t]*$", head)
+    d = _long_date(alone.group(1) if alone else head)
+    return d if d and "2004" <= d[:4] <= "2030" else None
+
+
+def _pdf_text_fallback(data):
+    """Very small PDF text reader (Flate streams, Tj/TJ strings) for when pdftotext is absent."""
+    import zlib
+    out = []
+    for m in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", data, re.S):
+        raw = m.group(1)
+        try:
+            raw = zlib.decompress(raw)
+        except Exception:
+            pass
+        for s in re.findall(rb"\((?:\\.|[^\\)])*\)\s*Tj|\[(?:[^\]]*)\]\s*TJ", raw):
+            parts = re.findall(rb"\(((?:\\.|[^\\)])*)\)", s)
+            out.append(b"".join(parts).decode("latin-1", "replace"))
+        if sum(len(x) for x in out) > 20000:
+            break
+    return "\n".join(out)
+
+
+def letter_text(path):
+    """Text of the first 3 pages of a cached letter (never written anywhere)."""
+    import shutil
+    import subprocess
+    data = Path(path).read_bytes()
+    if not data.startswith(b"%PDF"):
+        return _text(data.decode("utf-8", errors="replace")) or ""
+    if shutil.which("pdftotext"):
+        r = subprocess.run(["pdftotext", "-f", "1", "-l", "3", "-enc", "UTF-8", str(path), "-"],
+                           capture_output=True, timeout=120)
+        if r.returncode == 0:
+            return r.stdout.decode("utf-8", errors="replace")
+    return _pdf_text_fallback(data)
+
+
+def read_letters(src):
+    """doc key -> {"status", "numbers": [..], "primary", "date"} from eua_letters.tsv."""
+    p = Path(src) / LETTERS
+    out = {}
+    if p.exists():
+        for ln in p.read_text(encoding="utf-8").splitlines():
+            a = ln.split("\t")
+            if len(a) >= 4 and a[0]:
+                nums = [x for x in a[2].split(",") if x]
+                out[a[0]] = {"status": a[1], "numbers": nums, "primary": nums[0] if nums else None,
+                             "date": a[3] or None}
+    return out
+
+
+def fetch_letters(dest, delay=1.0, tries=5, log=print):
+    """Download each row's letter once, keep only EUA number(s) and letter date. Resumable."""
+    dest = Path(dest)
+    ldir = dest / "letters"
+    ldir.mkdir(parents=True, exist_ok=True)
+    done = read_letters(dest)
+    todo = {}
+    for _pg, r in records(dest):
+        lf = letter_for(r)
+        if lf:
+            todo.setdefault(doc_key(lf[0]), lf[0])
+    nxt, stats = 0.0, {"letters": len(todo), "fetched": 0, "cached": 0, "errors": 0, "archive_fetched": 0}
+    archive = None
+    with open(dest / LETTERS, "a", encoding="utf-8") as fh:
+        for dk, url in todo.items():
+            ref = _archive.ref_of(url)
+            from_archive = bool(ref and ref[0] in ("ai", "wb"))
+            if dk in done and not (from_archive and done[dk]["status"] == "skipped-host"):
+                stats["cached"] += 1
+                continue
+            if not url.startswith(LETTER_HOSTS) and not from_archive:
+                fh.write(f"{dk}\tskipped-host\t\t\t{base.today()}\n")
+                continue
+            files = [p for p in ldir.glob(f"{dk}.*") if p.suffix in (".pdf", ".html")]
+            status = None
+            if from_archive and not files:
+                # FDA links this letter only as a copy in its web archive: read the raw capture
+                if archive is None:
+                    archive = _archive.Fetcher(ldir / "archive", delay=max(delay, 3.0), log=log)
+                arch = (_archive.ArchiveIt if ref[0] == "ai" else _archive.Wayback)(archive)
+                try:
+                    data = archive.get(arch.raw_url(ref[1], ref[2]),
+                                       _archive.hashed_name(ref[0], f"{ref[1]}/{ref[2]}", ".bin"))
+                    p = ldir / f"{dk}{'.pdf' if data.startswith(b'%PDF') else '.html'}"
+                    p.with_suffix(".part").write_bytes(data)
+                    p.with_suffix(".part").replace(p)
+                    files = [p]
+                    stats["archive_fetched"] += 1
+                except _archive.Missing as e:
+                    status = "archive-missing"
+                    log(f"  device_eua letters: {url}: {e}")
+                except _archive.Refused as e:          # reported; retried on a later run
+                    log(f"  device_eua letters: {url}: {e}")
+                if not files:
+                    stats["errors"] += 1
+                    if status:
+                        fh.write(f"{dk}\t{status}\t\t\t{base.today()}\n")
+                        fh.flush()
+                    continue
+            # wcms-internet.fda.gov is FDA's content-management host name (not resolvable from
+            # outside FDA); the same /media/<id>/download path is published on www.fda.gov
+            url = re.sub(r"^https?://wcms-internet\.fda\.gov/", FDA + "/", url)
+            if not files:
+                for i in range(tries):
+                    wait = nxt - time.monotonic()
+                    if wait > 0:
+                        time.sleep(wait)
+                    nxt = time.monotonic() + delay
+                    try:
+                        req = urllib.request.Request(url, headers={"User-Agent": UA})
+                        with urllib.request.urlopen(req, timeout=120) as r:
+                            data = r.read()
+                        p = ldir / f"{dk}{'.pdf' if data.startswith(b'%PDF') else '.html'}"
+                        p.with_suffix(".part").write_bytes(data)
+                        p.with_suffix(".part").replace(p)
+                        files = [p]
+                        stats["fetched"] += 1
+                        break
+                    except Exception as e:
+                        code = getattr(e, "code", None)
+                        if code is not None and code < 500 and code != 429:
+                            status = str(code)        # 404 and other refusals: reported, not retried
+                            break
+                        log(f"  device_eua letters: {url}: {e} (attempt {i + 1})")
+                        time.sleep(min(300, 2 ** (i + 2)))
+            if not files:
+                stats["errors"] += 1
+                if status:                            # final answer (e.g. 404): cache it
+                    fh.write(f"{dk}\t{status}\t\t\t{base.today()}\n")
+                    fh.flush()
+                continue
+            text = letter_text(files[0])
+            primary, nums = eua_numbers(text)
+            date = letter_date(text)
+            del text
+            nums = ([primary] + [n for n in nums if n != primary]) if primary else nums
+            fh.write(f"{dk}\t{'ok' if nums else 'no-number'}\t{','.join(nums)}\t{date or ''}\t{base.today()}\n")
+            fh.flush()
+    log(f"  device_eua letters: {stats}")
+    return stats
 
 
 # ===========================================================================
@@ -512,6 +711,10 @@ def transform(src, out, retrieved_at=None):
     recs = records(src)
     keys, firms, hub_codes, docs, unknown = {}, {}, set(), {}, {}
     by_status, by_page, by_type, withheld = {}, {}, {}, 0
+    letters = read_letters(src)
+    cov = dict.fromkeys(("rows_with_letter", "rows_with_letter_of_authorization", "letters_read",
+                         "rows_with_eua_number", "rows_with_eua_number_from_letter_of_authorization",
+                         "rows_with_eua_number_from_other_letter", "rows_letter_cites_several_numbers"), 0)
     with base.TurtleWriter(out) as w:
         for pg, r in recs:
             product = common.norm_text(r.get("product"))
@@ -561,6 +764,18 @@ def transform(src, out, retrieved_at=None):
                 firms.setdefault(nf, holder)
             if r.get("letter"):
                 pairs.append(("ex:letterOfAuthorization", f"<{iri.eua_document(doc_key(r['letter'][0]))}>"))
+            lf = letter_for(r)
+            if lf:
+                info = letters.get(doc_key(lf[0]))
+                cov["rows_with_letter"] += 1
+                cov["rows_with_letter_of_authorization"] += lf[1] == "letter of authorization"
+                if info is not None:
+                    cov["letters_read"] += 1
+                if info and info["primary"]:
+                    pairs.append(("ex:euaNumber", common.lit(info["primary"])))
+                    cov["rows_with_eua_number"] += 1
+                    cov["rows_with_eua_number_from_" + lf[1].replace(" ", "_")] += 1
+                    cov["rows_letter_cites_several_numbers"] += len(info["numbers"]) > 1
             for url, text, title, typ in r["docs"]:
                 dk = doc_key(url)
                 if dk not in docs:
@@ -577,8 +792,10 @@ def transform(src, out, retrieved_at=None):
             by_type[lt] = by_type.get(lt, 0) + 1
         for dk in sorted(docs):
             url, lab, typ, page_url = docs[dk]
+            ld = (letters.get(dk) or {}).get("date")
             w.block(iri.eua_document(dk), [("a", "ex:EUADocument"), ("rdfs:label", common.lit(lab or typ)),
                                            ("ex:documentType", common.lit(typ)), ("ex:url", common.lit(url))]
+                    + ([("ex:documentDate", common.date_lit(ld))] if ld else [])
                     + common.provenance(DATASET, dk, source_url=page_url, retrieved_at=retrieved_at))
         for nf in sorted(firms):
             w.block(iri.firm_name(nf), common.firm_name_pairs(nf, firms[nf]))
@@ -587,10 +804,13 @@ def transform(src, out, retrieved_at=None):
     st.triples = w.triples
     rep = {"records": st.records, "skipped": st.skipped, "by_page": by_page, "by_status": by_status,
            "by_listing_type": by_type, "holders_withheld_as_person_names": withheld, "documents": len(docs), "firms": len(firms),
-           "product_codes": sorted(hub_codes), "unknown_headers": unknown}
+           "product_codes": sorted(hub_codes), "unknown_headers": unknown, "eua_numbers": cov,
+           "eua_letter_status": {s: sum(1 for v in letters.values() if v["status"] == s)
+                                 for s in sorted({v["status"] for v in letters.values()})}}
     Path(out).with_suffix(".report.json").write_text(json.dumps(rep, indent=1), encoding="utf-8")
     print(f"  device_eua: {st.records} EUA rows, {len(docs)} documents, {len(firms)} firms; status {by_status}; "
-          f"unknown headers {unknown or 'none'}")
+          f"unknown headers {unknown or 'none'}; EUA numbers {cov['rows_with_eua_number']}/{cov['rows_with_letter']} "
+          f"rows with a letter")
     return st
 
 
@@ -637,6 +857,16 @@ def _selftest():
     assert col_kind("PPE (Letter of Authorization)") == "product_letter" and col_kind("Procode Assigned") == "product_code"
     assert doc_type("HCP", "x Fact Sheet", "u") == "Fact Sheet" and doc_type("Revocation Letter", None, "u") == "Revocation Letter"
     assert doc_key("https://www.fda.gov/media/156956/download?attachment") == "media_156956"
+    # letter heads (layout of FDA letters; addressee replaced by placeholders)
+    head = ("March 16, 2022\n\nACME Diagnostics, Inc.\nAttention: [addressee]\n123 Main Street\n\n"
+            "Device: INDICAID COVID-19 Rapid Antigen At-Home Test\nEUA Number: EUA210012\n"
+            "Company: PHASE Scientific\n\nDear [addressee]:\n\nOn May 12, 2022 ... EUA 200001 ...")
+    assert eua_numbers(head) == ("EUA210012", ["EUA210012", "EUA200001"]), eua_numbers(head)
+    assert eua_numbers("Re: EUA 202345/S003 ... see EUA200001") == ("EUA202345", ["EUA202345", "EUA200001"])
+    assert eua_numbers("no number here, only EUA 2020 and K123456") == (None, [])
+    assert letter_date(head) == "2022-03-16" and letter_date("Dear X: On May 12, 2022") is None
+    assert letter_for({"letter": None, "docs": [("u1", "IFU", None, None),
+                                                ("u2", "Revocation Letter", None, None)]}) == ("u2", "other letter")
     assert len(parse_tables("<p>" + "x" * 5000 + "</p>" + _ANTIGEN)) == 1      # table far into the page
     assert len(parse_accordion(_MAIN)) == 1
     ppe = parse_tables("<h2>Personal Protective Equipment (PPE)</h2><table><thead><tr><th>Personal Protective "
@@ -654,6 +884,8 @@ def _selftest():
             pages.append({"key": key, "url": f"{FDA}/{key}", "final_url": f"{FDA}/{key}", "kind": kind, "emergency": em})
         (t / "pages.json").write_text(json.dumps(pages), encoding="utf-8")
         base.Manifest(source=NAME, dataset=DATASET, retrieved_at="2026-10-28", files=[]).write(t / "manifest.json")
+        (t / LETTERS).write_text("media_156956\tok\tEUA210012,EUA200001\t2022-03-16\t2026-11-03\n"
+                                 "media_137101\tno-number\t\t\t2026-11-03\n", encoding="utf-8")
         st = transform(t, t / "device_eua.ttl")
         ttl = (t / "device_eua.ttl").read_text(encoding="utf-8")
         rep = json.loads((t / "device_eua.report.json").read_text(encoding="utf-8"))
@@ -681,6 +913,17 @@ def _selftest():
     assert 'ex:euaIssueDate "2014-08-05"^^xsd:date' in ttl and 'ex:euaLastUpdatedDate "2014-10-10"^^xsd:date' in ttl
     assert f"ex:letterOfAuthorization <{iri.eua_document('media_89984')}>" in ttl
     assert 'ex:euaListingType "individual EUA"' in ttl
+    assert ttl.count("ex:euaNumber") == 1 and 'ex:euaNumber "EUA210012"' in ttl and "EUA200001" not in ttl
+    assert letter_date("Print\nAs of June 23, 2010, the EUAs have been terminated.\nDecember 18, 2009\nJohn Doe\n"
+                       "Dear Dr. Doe:") == "2009-12-18"
+    # a letter FDA links only in its web archive is read from the raw Archive-It capture
+    ai = _archive.ref_of("https://wayback.archive-it.org/7993/20170113011301/http://www.fda.gov/MedicalDevices/"
+                         "Safety/EmergencySituations/ucm196312.htm")
+    assert ai == ("ai", "20170113011301", "https://www.fda.gov/MedicalDevices/Safety/EmergencySituations/ucm196312.htm"), ai
+    assert _archive.ArchiveIt(None).raw_url(ai[1], ai[2]).startswith("https://wayback.archive-it.org/7993/20170113011301id_/")
+    lt = next(b for b in ttl.split("\n\n") if b.startswith(f"<{iri.eua_document('media_156956')}>"))
+    assert 'ex:documentDate "2022-03-16"^^xsd:date' in lt, lt
+    assert rep["eua_numbers"]["rows_with_eua_number"] == 1 and rep["eua_numbers"]["letters_read"] == 2, rep
     # every record carries provenance: EUA rows and the EUA documents they link to
     blocks = [b for b in ttl.split("\n\n") if b.startswith("<")]
     recs = [b for b in blocks if "\n    a ex:DeviceEUA" in b or "\n    a ex:EUADocument" in b]
@@ -694,6 +937,8 @@ def _selftest():
 if __name__ == "__main__":
     if len(sys.argv) >= 3 and sys.argv[1] == "fetch":
         fetch(sys.argv[2])
+    elif len(sys.argv) >= 3 and sys.argv[1] == "fetch-letters":
+        fetch_letters(sys.argv[2], log=lambda s: print(f"{datetime.now():%Y-%m-%d %H:%M:%S} {s}", flush=True))
     elif len(sys.argv) >= 4 and sys.argv[1] == "transform":
         s = transform(sys.argv[2], sys.argv[3])
         print(f"transform: {s.records} records, {s.triples} triples, {s.skipped} skipped")
