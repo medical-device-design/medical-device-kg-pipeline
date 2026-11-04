@@ -99,14 +99,14 @@ Every output passes `riot --validate`; triple counts from the transforms.
 | 510(k) Third Party Review organizations | `third_party_review.py` | cfThirdParty organization pages, eligible devices by panel, fda.gov accreditation status table | 8 (7 recognized, 1 withdrawn); 644 regulations, 1,556 product codes | 13,472 |
 | Data Dashboard: inspection classifications | `dd_inspections.py` | Data Dashboard API, ProductType Devices | 33,190 inspections (50,601 rows) | 839,212 |
 | Data Dashboard: inspection citations | `dd_citations.py` | Data Dashboard API, Program Area Devices and Radiologic Health | 52,439 citations; 784 citation references | 845,858 |
-| Data Dashboard: compliance actions | `dd_compliance_actions.py` | Data Dashboard API, ProductType Devices | 1,844 (1,819 warning letters, 20 injunctions, 5 seizures) | 42,787 |
+| Data Dashboard: compliance actions | `dd_compliance_actions.py` | Data Dashboard API, ProductType Devices | 1,844 (1,819 warning letters, 20 injunctions, 5 seizures) | 42,801 |
 | Data Dashboard: import refusals | `dd_import_refusals.py` | Data Dashboard API, Devices and Radiological Health + FDA's public charge list | 37,491 refusals; 287 charges | 1,117,096 |
 
 - IRIs come from new `pipeline/iri.py` minters: `mddt`, `asca_testing_laboratory`, `asca_accreditation_body`, `asca_scope`, `third_party_review_organization`, `fda_inspection`, `fda_inspection_citation`, `fda_citation_reference`, `fda_compliance_action`, `import_refusal`, `import_refusal_charge`. Moving the modules from local `iri._instance` calls to these minters left every output byte-identical (sha256).
 - New classes and properties are declared in the "November 4, 2026" block of `ontology/ontology.ttl`. `ex:productArea`, `ex:fdaCenter`, `ex:relatedPageUrl` and `ex:summaryUrl` are now shared and lost their `rdfs:domain`.
 - The Data Dashboard API needs a user name and key; the PI's key is read from an environment file on the build VM at request time and is never logged, cached or written to an output. Requests are 1 per second.
 - Individuals: firms whose name reads as a person (degree or honorific; for Bioresearch Monitoring inspections, any personal-name shape) keep no name, street address, city, ZIP, FEI or profile URL, in all four Data Dashboard sources. MDDT, ASCA and third party review contact persons are not read.
-- Joins: inspections, citations, compliance actions and import refusals link to `iri.manufacturer(fei=...)`, the node registration/listing and the recall database use; citations link to 21 CFR sections and parts; import refusals link to the device product code only when FDA's import code is 2 digits plus a CDRH product code (37,169 of 37,491); compliance actions of type warning letter link to `ex:WarningLetter` nodes by MARCS-CMS number (`ex:relatedWarningLetter`): 427 of 1,819 (377 with the same issue date, 50 by number only), against the warning-letter file with the archive years.
+- Joins: inspections, citations, compliance actions and import refusals link to `iri.manufacturer(fei=...)`, the node registration/listing and the recall database use; citations link to 21 CFR sections and parts; import refusals link to the device product code only when FDA's import code is 2 digits plus a CDRH product code (37,169 of 37,491); compliance actions of type warning letter link to `ex:WarningLetter` nodes by MARCS-CMS number (`ex:relatedWarningLetter`): 441 of 1,819 (391 with the same issue date, 50 by number only), against the warning-letter file with the archive years.
 
 ## FDA web archive (PI approval, November 3, 2026)
 
@@ -114,10 +114,12 @@ For FDA records that fda.gov no longer serves, the pipeline now reads FDA's offi
 
 | Source | Added from the archive | Now |
 |---|---|---|
-| Warning letters | 2005 to April 2019 (Archive-It year listings and letter pages): 1,769 letters | 2,045 device letters, 53,224 triples |
+| Warning letters | 2005 to April 2019 (Archive-It year listings and letter pages): 1,940 letters | 2,216 device letters, 57,745 triples |
 | Safety communications | safety communications 2011-2022 and letters to health care providers 2016-2022 (Pagefreezer and Archive-It): 271 records | 328 records |
 | Device discontinuances | 2020-2024 rows (the web.archive.org snapshot fda.gov links) | 69 archived rows |
 | Device EUA letters | the 8 letters (2009 H1N1 EUAs) FDA links only on Archive-It | all 646 letters read |
+
+Warning letters 2013 (fixed November 4, 2026): the first archive run kept only 11 device letters for 2013. The newest readable capture of the 2013 year listing (Archive-It 20190422151413) links its other pages as `2013/ucm20035841.htm?Page=N` instead of `2013/default.htm?Page=N`, and `fetch_archive` only recognized the second form, so it read page 1 alone (50 of 682 letters). It now follows the pager's own links (`pager_links`, with a self-test on the verbatim 2013 pager); the other 13 pages and the 2013 device letter pages were read (184 new archive requests, none failed), giving 182 device letters for 2013 (the Data Dashboard lists 189 device warning letters with a 2013 action date). The other years read every page their pager lists, and in 2011 to 2015 every listed letter's issue date falls in its listing year. Re-running `dd_compliance_actions` raised its warning-letter links from 427 to 441 (2013: 2 to 16; most 2013 letter pages state no MARCS-CMS number, as in 2009 to 2012).
 
 ## EUA numbers (November 3 and 4, 2026)
 

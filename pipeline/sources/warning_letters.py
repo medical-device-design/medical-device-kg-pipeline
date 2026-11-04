@@ -428,8 +428,24 @@ def parse_archived_list(page):
                          "office": _unquote(_one(cells[col["office"]])) if col["office"] is not None else None,
                          "subject": _unquote(_one(cells[col["subject"]])) if col["subject"] is not None else None,
                          "response": dated(col["response"]), "closeout": dated(col["closeout"])})
-    pages = sorted({int(n) for n in re.findall(r"default\.htm\?[Pp]age=(\d+)", page)})
-    return rows, pages
+    return rows, sorted(pager_links(page, OLD_LIST.format(0)))
+
+
+_PAGER = re.compile(r"""(?i)\bhref\s*=\s*["']((?:[^"'?\s]*/WarningLetters/\d{4}/[\w.-]+\.htm)?\?page=(\d+))["']""")
+
+
+def pager_links(page, url):
+    """Old-site year listing -> {page number: fda.gov URL of that page}, read from the listing's own pager.
+    Most captures link <year>/default.htm?Page=N; some link the same listing under its content id
+    (the 2013 listing captured in 2019 links 2013/ucm20035841.htm?Page=N, which Archive-It holds and
+    default.htm?Page=N does not for that crawl). A relative "?Page=N" ("Next") is resolved against `url`
+    and yields to an explicit link with the same number."""
+    out = {}
+    for h, n in _PAGER.findall(page or ""):
+        u = url.split("?", 1)[0] + h if h.startswith("?") else _archive.fda_url(h)
+        if u and (int(n) not in out or not h.startswith("?")):
+            out[int(n)] = u
+    return out
 
 
 def _salutation_person(company, salutations):
@@ -491,15 +507,15 @@ def fetch_archive(dest, delay=1.0, log=print, years=ARCHIVE_YEARS):
         if not r1:
             no_listing.append([y, ["200 without a listing table"]])
             continue
-        todo = [(m1, r1)]
+        todo, links = [(m1, r1)], pager_links(p1, url)
         for n in pages:
             if n == 1:
                 continue
             try:
-                mn, pn = rd.get(("ai", ts, f"{url}?Page={n}"))
+                mn, pn = rd.get(("ai", ts, links[n]))
                 todo.append((mn, parse_archived_list(pn)[0]))
             except _archive.Missing as e:
-                failed.append([f"{url}?Page={n}", str(e)])
+                failed.append([links[n], str(e)])
             except _archive.Refused as e:
                 refused = str(e)
                 break
@@ -807,12 +823,27 @@ _A_LETTER = '''<div role="main"><p>Kansas City District Office 8050 Marshall Dri
 <p>Sincerely, /S/ Cheryl A. Bigham, District Director, Kansas City District</p>
 Page Last Updated: 01/05/2017</div>'''
 _A_PERSON = '''<div role="main"><p>WARNING LETTER</p><p>Dear Dr. Roe:</p><p>... as required by 21 CFR 812.100.</p></div>'''
+# Verbatim pager of the 2013 year listing, Archive-It 7993 capture 20190422151413 (read 2026-11-03;
+# the items for pages 4-12 are left out). It links ucm20035841.htm?Page=N, not default.htm?Page=N,
+# so the v0.0.7 archive run read only page 1 of 2013 (50 of about 700 letters).
+_A_PAGER_2013 = ('\t\t<ul class="pagination-clean" >\n\n\t\t\t<li class="previous-off">Previous</li>\n'
+                 '\t\t\t\t\t<li class="active">1</li>\n\t\t\t\t\t\t\n'
+                 '\t\t\t\t\t<li><a href="/ICECI/EnforcementActions/WarningLetters/2013/ucm20035841.htm?Page=2">2</a></li>\n\t\t\n'
+                 '\t\t\t\t\t<li><a href="/ICECI/EnforcementActions/WarningLetters/2013/ucm20035841.htm?Page=3">3</a></li>\n\t\t\n'
+                 '\t\t\t\t\t<li><a href="/ICECI/EnforcementActions/WarningLetters/2013/ucm20035841.htm?Page=13">13</a></li>\n\t\t\n'
+                 '\t\t\t\t\t<li><a href="/ICECI/EnforcementActions/WarningLetters/2013/ucm20035841.htm?Page=14">14</a></li>\n'
+                 '\t\t\t<li class="next"><a href="?Page=2">Next</a></li>\n\t\t</ul>\n')
 
 
 def _selftest_archive():
     import tempfile
     rows, pages = parse_archived_list(_A_LIST)
     assert pages == [2, 31] and len(rows) == 4, (pages, rows)
+    assert pager_links(_A_LIST, OLD_LIST.format(2016))[31] == OLD_LIST.format(2016) + "?Page=31"
+    p13 = pager_links(_A_PAGER_2013, OLD_LIST.format(2013))
+    assert sorted(p13) == [2, 3, 13, 14] and parse_archived_list(_A_PAGER_2013)[1] == [2, 3, 13, 14], p13
+    assert p13[2] == SITE + "/ICECI/EnforcementActions/WarningLetters/2013/ucm20035841.htm?Page=2", p13
+    assert pager_links('<a href="?Page=2">Next</a>', OLD_LIST.format(2013)) == {2: OLD_LIST.format(2013) + "?Page=2"}
     nomax = rows[0]
     assert nomax["issued"] == "12/15/2016" and nomax["company"] == "Nomax Inc" and nomax["closeout"] == [], nomax
     assert nomax["url"] == SITE + "/ICECI/EnforcementActions/WarningLetters/2016/ucm534145.htm"
