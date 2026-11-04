@@ -37,6 +37,27 @@ to the page's recipient name, or a "Clinical Investigator" subject without an or
 those the name, address, FEI, firm link and FDA URLs (which embed the name) are dropped, provenance points
 at the listing page, and ex:dataQualityNote says why.
 
+LETTERS BEFORE 2021 (fetch_archive, PI approval of 2026-11-03)
+---------------------------------------------------------------
+FDA's index above starts in 2021. Earlier letters were listed on the old site as one page per year,
+    https://www.fda.gov/ICECI/EnforcementActions/WarningLetters/<year>/default.htm (?Page=N),
+columns Letter Issue Date | Company Name | Issuing Office | Subject | Close Out Date, which survive
+only in FDA's official web archive on Archive-It (collection 7993, "FDA.gov Web Archive", linked from
+https://www.fda.gov/about-fda/about-website/fdagov-archive). fetch_archive() asks the collection's
+CDX index for each year page, reads the newest readable capture of page 1 and of every page it links
+(?Page=N), applies the same device filter to the rows, and reads each device letter page from the same
+archive (nearest capture), all cached under archive/. Readable listings exist for 2005-2018 and for
+January-April 2019 (2019/default.htm, last captured 2019-04-24); the 1996-2004 year pages are archived
+only as redirect records, and from mid-2019 the listing is the JavaScript table above, whose data the
+archive did not capture. The letter page is parsed exactly as above (identifiers only; never the body,
+recipient or signatory); old pages also write "CMS Case: NNNNNN" and end at "Page Last Updated".
+Old pages have no structured recipient fields, so is_individual() also compares the salutation
+("Dear Dr. Smith:") with the Company Name column, used only for that check and never stored.
+Archive-derived letters keep the IRI rule (the URL slug, e.g. ucm534145.htm, as old URLs carry no
+CMS number), ex:url/ex:sourceUrl = the archive URL, ex:archivedFrom = the original fda.gov URL, and an
+ex:dataQualityNote saying the letter was read from FDA's archive copy. Letters to individuals are
+withheld exactly as above (no name, address, FEI, firm link or URLs; provenance = the archived listing).
+
 Minter: iri.warning_letter(key) -> .../id/warning-letter/<slug(key)>
         key = "<MARCS-CMS number>-<MMDDYYYY>" taken from the letter URL ("...-727888-08262026"),
         else the whole URL slug.   iri.warning_letter('727888-08262026') -> .../id/warning-letter/727888_08262026
@@ -59,6 +80,7 @@ import iri        # noqa: E402
 import common     # noqa: E402
 import base       # noqa: E402
 import _cfweb     # noqa: E402
+import _archive   # noqa: E402
 from identity import normalize_org   # noqa: E402
 
 NAME = "warning_letters"
@@ -212,11 +234,18 @@ def possible_number(num, this_year=None):
     return not (m.group(1) == "P" and int(m.group(3)) >= 1000)
 
 
-def parse_letter(page):
-    """Letter page HTML -> dict of the few fields we keep (never the body text)."""
+_CMS_OLD = re.compile(r"\bCMS\s*(?:Case|Ref(?:erence)?)?\s*(?:#|No\.?|Number)?\s*:?\s*#?\s*(\d{4,8})\b")
+_SALUTATION = re.compile(r"\bDear\s+(?:Dr|Mr|Mrs|Ms|Miss|Mx)\.?\s+([A-Z][A-Za-z'\-]+(?:\s+[A-Z][A-Za-z'\-]+)?)\s*[:,]")
+
+
+def parse_letter(page, archived=False):
+    """Letter page HTML -> dict of the few fields we keep (never the body text).
+    archived=True: an old-site page read from FDA's archive (see LETTERS BEFORE 2021)."""
     a = page.find('role="main"')
     main = page[a:] if a >= 0 else page
     e = main.find("Content current as of")
+    if e < 0 and archived:
+        e = main.find("Page Last Updated")
     if e > 0:
         main = main[:e]
     out = {"product": None, "cms": None, "address": {}, "fei": [], "k510": [], "pma": [],
@@ -239,8 +268,10 @@ def parse_letter(page):
             r'(?s)field--name-field-recipient-name.*?field--item">(.*?)</div>', rb.group(1)) if _one(x)]
     text = _cfweb.text(main) or ""
     flat = " ".join(text.split())
-    c = _CMS.search(flat)
+    c = _CMS.search(flat) or (_CMS_OLD.search(flat) if archived else None)
     out["cms"] = c.group(1) if c else None
+    if archived:      # used ONLY to detect letters addressed to an individual; never written out
+        out["_salutation"] = [m.group(1) for m in _SALUTATION.finditer(flat)][:3]
     fei = []
     for m in _FEI.finditer(flat):
         fei += [x for x in re.findall(r"\d{7,10}", m.group(1)) if x not in fei]
@@ -329,6 +360,202 @@ def _rows(src):
     return out
 
 
+# ---------------------------------------------------------------------------
+#  Letters before 2021: FDA's old-site year listings in its Archive-It collection (fetch_archive)
+# ---------------------------------------------------------------------------
+OLD_LIST = SITE + "/ICECI/EnforcementActions/WarningLetters/{}/default.htm"
+ARCHIVE_YEARS = range(1996, 2021)
+_LONG = re.compile(r"\b(January|February|March|April|May|June|July|August|September|October|November|December)"
+                   r"\s+(\d{1,2}),\s*(\d{4})\b")
+_MON = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
+        "november", "december"]
+_ANY_A = re.compile(r"""(?is)<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>(.*?)</a>""")
+
+
+def _us_date(text):
+    """'December 29, 2005' / '12/29/2017' / '12/29/17' -> '12/29/2005' (None if neither)."""
+    t = " ".join((text or "").split())
+    m = _LONG.search(t)
+    if m:
+        return f"{_MON.index(m.group(1).lower()) + 1:02d}/{int(m.group(2)):02d}/{m.group(3)}"
+    m = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{4}|\d{2})\b", t)
+    if m:
+        y = int(m.group(3))
+        return f"{int(m.group(1)):02d}/{int(m.group(2)):02d}/{y + 2000 if y < 100 else y}"
+    return None
+
+
+def _a_links(cell):
+    return [(next(g for g in m.groups()[:3] if g is not None), m.group(4)) for m in _ANY_A.finditer(cell or "")]
+
+
+def parse_archived_list(page):
+    """Old-site year listing -> (rows like parse_list's, sorted page numbers linked as ?Page=N)."""
+    rows = []
+    for t in re.findall(r"(?is)<table\b.*?</table>", page):
+        trs = re.findall(r"(?is)<tr\b[^>]*>(.*?)</tr>", t)
+        if not trs:
+            continue
+        hdr = [(_one(c) or "").lower() for c in re.findall(r"(?is)<th\b[^>]*>(.*?)</th>", trs[0])]
+        if not any("issue date" in h for h in hdr) or not any("company" in h for h in hdr):
+            continue
+        col = {k: next((i for i, h in enumerate(hdr) if w in h), None) for k, w in
+               (("issued", "issue date"), ("company", "company"), ("office", "issuing office"),
+                ("subject", "subject"), ("closeout", "close"), ("response", "response"), ("posted", "posted"))}
+        for tr in trs[1:]:
+            cells = re.findall(r"(?is)<td\b[^>]*>(.*?)</td>", tr)
+            if len(cells) < len(hdr):
+                continue
+            cc = cells[col["company"]]
+            links = _a_links(cc)
+            url = _archive.fda_url(links[0][0]) if links else None
+            company = _one(re.sub(r"(?is)<span[^>]*>\s*\[ARCHIVED\]\s*</span>", "", links[0][1] if links else cc))
+
+            def dated(i):
+                if i is None:
+                    return []
+                out = []
+                for h, inner in _a_links(cells[i]):
+                    d = _us_date(_one(inner))
+                    if d:
+                        out.append((d, _archive.fda_url(h) if not h.startswith("#") else None))
+                if not out and _us_date(_one(cells[i])):
+                    out.append((_us_date(_one(cells[i])), None))
+                return out
+            rows.append({"url": url, "company": company,
+                         "posted": _us_date(_one(cells[col["posted"]])) if col["posted"] is not None else None,
+                         "issued": _us_date(_one(cells[col["issued"]])),
+                         "office": _unquote(_one(cells[col["office"]])) if col["office"] is not None else None,
+                         "subject": _unquote(_one(cells[col["subject"]])) if col["subject"] is not None else None,
+                         "response": dated(col["response"]), "closeout": dated(col["closeout"])})
+    pages = sorted({int(n) for n in re.findall(r"default\.htm\?[Pp]age=(\d+)", page)})
+    return rows, pages
+
+
+def _salutation_person(company, salutations):
+    """True when a salutation surname ("Dear Dr. Smith:") appears in a Company Name with no organization word."""
+    if not company or _ORG_WORD.search(company):
+        return False
+    words = {_squash(w) for w in re.split(r"[\s,.]+", company) if w}
+    return any(_squash(s.split()[-1]) in words for s in salutations or [])
+
+
+def fetch_archive(dest, delay=1.0, log=print, years=ARCHIVE_YEARS):
+    """Read the old-site year listings and device letter pages from Archive-It 7993 -> archive.json."""
+    dest = Path(dest)
+    rd = _archive.Reader(dest / "archive", delay=delay, log=log)
+    listings, rows, no_listing, failed, refused = [], [], [], [], None
+
+    def save(stage):                     # written as the run goes, so a partial run can be transformed
+        (dest / "archive.json.part").write_text(json.dumps({
+            "date": base.today(), "stage": stage,
+            "entry": "https://wayback.archive-it.org/7993/ (FDA.gov Web Archive, Archive-It collection 7993)",
+            "listing_url": OLD_LIST, "listings": listings, "no_readable_listing": no_listing,
+            "rows": rows, "failed": failed, "refused": refused, "host_refusals": rd.f.refusals}, indent=1),
+            encoding="utf-8")
+        os.replace(dest / "archive.json.part", dest / "archive.json")
+
+    for y in years:
+        url = OLD_LIST.format(y)
+        try:
+            caps = rd.ai.cdx(url.split("://", 1)[1], f"aicdx_list_{y}.txt",
+                             fl="urlkey,timestamp,original,mimetype,statuscode,digest,length")
+        except _archive.Missing as e:
+            failed.append([url, str(e)])
+            continue
+        except _archive.Refused as e:
+            refused = str(e)
+            log(f"  warning_letters archive: STOPPED, {refused}")
+            break
+        ok = sorted(c["timestamp"] for c in caps if c.get("statuscode") == "200" and "html" in c.get("mimetype", ""))
+        if not ok:
+            no_listing.append([y, sorted({c.get("statuscode") for c in caps})])
+            continue
+        # newest capture of the year page that holds the listing table (a few later captures are
+        # FDA's "page not available" body served with status 200)
+        seen, got, pages_read, m1, r1, pages = set(), [], 0, None, [], []
+        for ts in list(reversed(ok))[:4]:
+            try:
+                m1, p1 = rd.get(("ai", ts, url))
+            except _archive.Missing as e:
+                failed.append([url + " @" + ts, str(e)])
+                continue
+            except _archive.Refused as e:
+                refused = str(e)
+                break
+            r1, pages = parse_archived_list(p1)
+            if r1:
+                break
+        if refused:
+            break
+        if not r1:
+            no_listing.append([y, ["200 without a listing table"]])
+            continue
+        todo = [(m1, r1)]
+        for n in pages:
+            if n == 1:
+                continue
+            try:
+                mn, pn = rd.get(("ai", ts, f"{url}?Page={n}"))
+                todo.append((mn, parse_archived_list(pn)[0]))
+            except _archive.Missing as e:
+                failed.append([f"{url}?Page={n}", str(e)])
+            except _archive.Refused as e:
+                refused = str(e)
+                break
+        for meta, rr in todo:
+            pages_read += 1
+            for r in rr:
+                k = r["url"] or (r["company"], r["issued"])
+                if k in seen:
+                    continue
+                seen.add(k)
+                got.append(dict(r, year=y, listing=meta["archive_url"], ts=ts))
+        dev = sum(is_device(r) for r in got)
+        listings.append({"year": y, "ts": ts, "archive_url": m1["archive_url"], "pages": pages_read,
+                         "rows": len(got), "device_rows": dev})
+        log(f"  warning_letters archive: {y}: {len(got)} letters on {pages_read} pages, {dev} device ({m1['archive_url']})")
+        rows += got
+        if refused:
+            save(f"listings through {y}")
+            log(f"  warning_letters archive: STOPPED, {refused}")
+            break
+        # the year's device letter pages, from the same archive (nearest capture)
+        dev_rows = [r for r in got if is_device(r) and r["url"]]
+        for i, r in enumerate(dev_rows, 1):
+            try:
+                r["page"] = rd.get(("ai", r["ts"], r["url"]))[0]
+            except _archive.Missing as e:
+                failed.append([r["url"], str(e)])
+            except _archive.Refused as e:             # the host kept refusing after long pauses: stop
+                refused = str(e)
+                break
+            if i % 25 == 0:
+                log(f"  warning_letters archive: {y}: {i}/{len(dev_rows)} letter pages "
+                    f"(fetched {rd.f.fetched}, cached {rd.f.cached})")
+                save(f"{y}: letter pages {i}/{len(dev_rows)}")
+        save(f"through {y}")
+        if refused:
+            log(f"  warning_letters archive: STOPPED, {refused}")
+            break
+    keep = [r for r in rows if is_device(r) and r["url"]]
+    save("stopped: " + refused if refused else "complete")
+    log(f"  warning_letters archive: {len(rows)} listed letters ({len(keep)} device) in {len(listings)} years; "
+        f"no readable listing for {[y for y, _ in no_listing]}; fetched {rd.f.fetched}, cached {rd.f.cached}, "
+        f"failed {len(failed)}")
+    return len(keep)
+
+
+def _archived_rows(src):
+    p = Path(src) / "archive.json"
+    if not p.exists():
+        return [], None
+    a = json.loads(p.read_text(encoding="utf-8"))
+    if a.get("stage", "complete") != "complete":
+        print(f"  warning_letters: archive.json is partial ({a['stage']})")
+    return [r for r in a["rows"] if is_device(r) and r["url"]], a.get("date")
+
+
 def transform(src, out, retrieved_at=None):
     src, out = Path(src), Path(out)
     if retrieved_at is None and (src / "manifest.json").exists():
@@ -337,6 +564,11 @@ def transform(src, out, retrieved_at=None):
         except Exception:
             retrieved_at = None
     rows = [r for r in _rows(src) if is_device(r) and r["url"]]
+    arows, arch_date = _archived_rows(src)
+    current = {letter_key(r["url"]) for r in rows}
+    for r in arows:
+        r["archived"] = True
+    rows += [r for r in arows if letter_key(r["url"]) not in current]
     st = base.Stats(source=NAME)
     firms, codes, counts = {}, set(), {"with_page": 0, "with_fei": 0, "with_pc": 0, "with_sub": 0, "with_cfr": 0}
     keys = {}
@@ -346,8 +578,17 @@ def transform(src, out, retrieved_at=None):
             if key in keys:                                  # two URLs with the same CMS+date: keep full slug
                 key = r["url"].rstrip("/").rsplit("/", 1)[-1]
             keys[key] = r["url"]
-            p = src / "pages" / f"{_page_name(r['url'])}.html"
-            d = parse_letter(p.read_text(encoding="utf-8", errors="replace")) if p.exists() else None
+            arch = r.get("archived")
+            pm = r.get("page") if arch else None             # archive page metadata (fetch_archive)
+            if arch:
+                p = src / "archive" / "pages" / f"{pm['page']}.html" if pm else None
+                d = parse_letter(p.read_text(encoding="utf-8", errors="replace"), archived=True) \
+                    if p is not None and p.exists() else None
+                counts["archive_letters"] = counts.get("archive_letters", 0) + 1
+                counts["archive_with_page"] = counts.get("archive_with_page", 0) + (d is not None)
+            else:
+                p = src / "pages" / f"{_page_name(r['url'])}.html"
+                d = parse_letter(p.read_text(encoding="utf-8", errors="replace")) if p.exists() else None
             if d is None:
                 st.skipped += 1                              # metadata still written below
             else:
@@ -355,9 +596,13 @@ def transform(src, out, retrieved_at=None):
             subj = iri.warning_letter(key)
             # a letter to a person (clinical investigator, sole individual): no name, address, firm link,
             # FEI or URL (FDA's URLs embed the name); the record keeps dates, office, subject and citations
-            person = is_individual(r["company"], r["subject"], (d or {}).get("_recipient_names", ()))
+            person = is_individual(r["company"], r["subject"], (d or {}).get("_recipient_names", ())) or \
+                (bool(arch) and _salutation_person(r["company"], (d or {}).get("_salutation")))
             counts["individual_withheld"] = counts.get("individual_withheld", 0) + person
             name = None if person else r["company"]
+            if arch:                                         # read from FDA's archive: point at the archive copy
+                r = dict(r, original=r["url"], url=pm["archive_url"] if pm else
+                         _archive.view_url(("ai", r["ts"], r["url"])))
             pairs = [("a", "ex:WarningLetter"),
                      ("rdfs:label", common.label(f"Warning letter to {name}" if name else "Warning letter",
                                                  r["issued"], sep=", ")),
@@ -376,7 +621,14 @@ def transform(src, out, retrieved_at=None):
             if person:
                 pairs.append(("ex:dataQualityNote", common.lit(
                     "letter addressed to an individual; the name, address and letter URL are not ingested")))
-            m = _KEY.search(r["url"].rstrip("/"))
+            if arch:
+                pairs.append(("ex:archivedFrom", None if person else common.lit(r["original"])))
+                pairs.append(("ex:dataQualityNote", common.lit(
+                    _archive.note("ai", pm["capture_ts"] if pm else None,
+                                  "; listed on FDA's archived " + str(r["year"]) + " warning letter page") if d else
+                    "listed on FDA's archived " + str(r["year"]) + " warning letter page (Archive-It collection 7993); "
+                    "the letter page could not be read from the archive")))
+            m = _KEY.search((r.get("original") or r["url"]).rstrip("/"))
             cms = (d or {}).get("cms") or (m.group(1) if m else None)
             pairs.append(("ex:marcsCmsNumber", common.lit(cms)))
             fei = []
@@ -412,8 +664,9 @@ def transform(src, out, retrieved_at=None):
                 if nf:
                     pairs.append(("ex:hasRecipientFirm", f"<{iri.firm_name(nf)}>"))
                     firms.setdefault(nf, name)
-            pairs += common.provenance(DATASET, key, source_url=LIST_PAGE if person else r["url"],
-                                       retrieved_at=retrieved_at)
+            pairs += common.provenance(DATASET, key,
+                                       source_url=(r["listing"] if arch else LIST_PAGE) if person else r["url"],
+                                       retrieved_at=(arch_date or retrieved_at) if arch else retrieved_at)
             w.block(subj, pairs)
             st.records += 1
         for nf in sorted(firms):
@@ -516,8 +769,96 @@ _LETTER = '''<div class="col-md-8" role="main">
 Content current as of: 10/27/2026'''
 
 
+# Verbatim fragments read 2026-11-03 from Archive-It collection 7993: the 2016 year listing (header,
+# one device row, one food row, the pager), a 2005 row marked [ARCHIVED], and the Nomax letter page
+# shortened to its header block and two sentences (names as published, to prove they are not stored).
+# The last listing row (a person) and its letter page are constructed in the same format.
+_A_LIST = '''<table width="100%" cellpadding="3" border="1" id='WarningLetter_sortid' class='tablesorter' summary="Layout showing WarningLetter table with 5 columns: Letter Issue Date, Company Name, Issuing Office, Subject, Close Out Date" style="margin-bottom:28px"> <thead> <tr> <th scope="col" data-type='numeric' data-toggle='true'> Letter Issue Date </th> <th scope="col" > Company Name </th> <th scope="col" data-hide='phone'> Issuing Office </th> <th scope="col" data-hide='phone'> Subject </th> <th scope="col" data-type='numeric' data-hide='phone,tablet'> Close Out Date </th> </tr> </thead> <tbody>
+<tr>
+		 <td>December 15, 2016 </td>
+		 <td style="text-decoration: underline;"><a href="/ICECI/EnforcementActions/WarningLetters/2016/ucm534145.htm">Nomax Inc</a></td>
+		 <td> Kansas City District Office</td>
+		 <td> Medical Devices/Adulterated/Quality System Regulation (QSR)</td>
+		 <td nowrap>
+				<a href="#wldisclaimer">Not Issued *</a>
+		</td>
+  </tr>
+<tr> <td>December 22, 2016 </td> <td style="text-decoration: underline;"><a href="/ICECI/EnforcementActions/WarningLetters/2016/ucm534556.htm">Tofu Yu, LLC</a></td> <td> San Francisco District Office</td> <td> CGMP/Food/Prepared, Packed or Held Under Insanitary Conditions/Adulterated</td> <td nowrap> <a href="#wldisclaimer">Not Issued *</a> </td> </tr>
+<tr>
+		 <td>December 29, 2005 </td>
+		 <td style="text-decoration: underline;"><a href="/ICECI/EnforcementActions/WarningLetters/2005/ucm075752.htm">Edgar Martin Dairy					<span style="margin-left:4px;">[ARCHIVED]</span>
+</a></td>
+		 <td> Minneapolis District Office</td>
+		 <td> Illegal Drug Residue /Adulterated</td>
+		 <td nowrap>
+				<a href="#wldisclaimer">N/A *</a>
+		</td>
+  </tr>
+<tr> <td>03/14/2017 </td> <td style="text-decoration: underline;"><a href="/ICECI/EnforcementActions/WarningLetters/2017/ucm999001.htm">John Roe</a></td> <td> Center for Devices and Radiological Health</td> <td> Medical Devices/Adulterated</td> <td nowrap> <a href="/ICECI/EnforcementActions/WarningLetters/2017/ucm999002.htm">06/01/2017</a> </td> </tr>
+</tbody></table>
+<ul class="pagination-clean" > <li class="previous-off">Previous</li> <li class="active">1</li> <li><a href="/ICECI/EnforcementActions/WarningLetters/2016/default.htm?Page=2">2</a></li> <li><a href="/ICECI/EnforcementActions/WarningLetters/2016/default.htm?Page=31">31</a></li></ul>'''
+_A_LETTER = '''<div role="main"><p>Kansas City District Office 8050 Marshall Drive &ndash; Suite 205 Lenexa, KS 66214 (913) 495-5100</p>
+<p>December 15, 2016</p><p>VIA UNITED PARCEL SERVICE DELIVERY SIGNATURE REQUESTED</p>
+<p>CMS Case: 512566 FEI: 1937310</p><p>WARNING LETTER</p>
+<p>Charles L. Voellinger, President/CEO Nomax Inc. 9735 Green Park Industrial Dr. Saint Louis, MO 63123-7241</p>
+<p>Dear Mr. Voellinger:</p>
+<p>This inspection revealed that your firm's devices are adulterated within the meaning of section 501(h) of the Act, 21 U.S.C. &sect; 351(h), in that the methods used in, or the facilities or controls used for, their manufacture, packing, storage, or installation are not in conformity with the current good manufacturing practice requirements of the Quality System (QS) regulation found at Title 21, Code of Federal Regulations (CFR), Part 820.</p>
+<p>Failure to establish and maintain procedures for implementing corrective and preventive action, as required by 21 CFR 820.100(a).</p>
+<p>Sincerely, /S/ Cheryl A. Bigham, District Director, Kansas City District</p>
+Page Last Updated: 01/05/2017</div>'''
+_A_PERSON = '''<div role="main"><p>WARNING LETTER</p><p>Dear Dr. Roe:</p><p>... as required by 21 CFR 812.100.</p></div>'''
+
+
+def _selftest_archive():
+    import tempfile
+    rows, pages = parse_archived_list(_A_LIST)
+    assert pages == [2, 31] and len(rows) == 4, (pages, rows)
+    nomax = rows[0]
+    assert nomax["issued"] == "12/15/2016" and nomax["company"] == "Nomax Inc" and nomax["closeout"] == [], nomax
+    assert nomax["url"] == SITE + "/ICECI/EnforcementActions/WarningLetters/2016/ucm534145.htm"
+    assert rows[2]["company"] == "Edgar Martin Dairy" and rows[2]["issued"] == "12/29/2005", rows[2]
+    assert rows[3]["closeout"] == [("06/01/2017", SITE + "/ICECI/EnforcementActions/WarningLetters/2017/ucm999002.htm")]
+    assert [is_device(r) for r in rows] == [True, False, False, True]
+    d = parse_letter(_A_LETTER, archived=True)
+    assert d["cms"] == "512566" and d["fei"] == ["1937310"] and d["cfr_sections"] == ["820.100"], d
+    assert d["cfr_parts"] == ["820"] and d["_salutation"] == ["Voellinger"], d
+    assert not _salutation_person("Nomax Inc", ["Voellinger"]) and _salutation_person("John Roe", ["Roe"])
+    with tempfile.TemporaryDirectory() as t:
+        t = Path(t)
+        (t / "pages").mkdir()
+        (t / "archive" / "pages").mkdir(parents=True)
+        (t / "pages" / "list_s00000.html").write_text(_LIST, encoding="utf-8")
+        (t / "lists.json").write_text(json.dumps({"total": 3779, "lists": ["list_s00000"]}), encoding="utf-8")
+        (t / "archive" / "pages" / "l1.html").write_text(_A_LETTER, encoding="utf-8")
+        (t / "archive" / "pages" / "l2.html").write_text(_A_PERSON, encoding="utf-8")
+        lst = "https://wayback.archive-it.org/7993/20170110235711/" + OLD_LIST.format(2016)
+        arows = [dict(r, year=2016, listing=lst, ts="20170110235711") for r in rows]
+        arows[0]["page"] = {"page": "l1", "capture_ts": "20170111134149",
+                            "archive_url": "https://wayback.archive-it.org/7993/20170111134149/" + nomax["url"]}
+        arows[3]["page"] = {"page": "l2", "capture_ts": "20170401000000",
+                            "archive_url": "https://wayback.archive-it.org/7993/20170401000000/" + rows[3]["url"]}
+        (t / "archive.json").write_text(json.dumps({"date": "2026-11-03", "rows": arows}), encoding="utf-8")
+        st = transform(t, t / "wl.ttl", retrieved_at="2026-10-28")
+        ttl = (t / "wl.ttl").read_text(encoding="utf-8")
+    assert st.records == 5, st                                  # 3 current device letters + 2 archived
+    blk = ttl.split(f"<{iri.warning_letter('ucm534145.htm')}>")[1].split("\n\n")[0]
+    assert 'ex:letterIssueDate "2016-12-15"^^xsd:date' in blk and 'ex:marcsCmsNumber "512566"' in blk, blk
+    assert f"ex:hasManufacturer <{iri.manufacturer(fei='1937310')}>" in blk and f"<{iri.cfr_section('820.100')}>" in blk
+    assert f'ex:archivedFrom "{nomax["url"]}"' in blk and 'ex:sourceUrl "https://wayback.archive-it.org/7993/20170111134149/' in blk
+    assert "read from FDA's web archive copy (Archive-It collection 7993, captured 2017-01-11" in blk
+    assert 'ex:retrievedAt "2026-11-03"^^xsd:date' in blk
+    roe = ttl.split(f"<{iri.warning_letter('ucm999001.htm')}>")[1].split("\n\n")[0]
+    assert "Roe" not in roe and "ex:url" not in roe and "ex:archivedFrom" not in roe, roe
+    assert f'ex:sourceUrl "{lst}"' in roe and "letter addressed to an individual" in roe
+    assert f"<{iri.cfr_section('812.100')}>" in roe and 'ex:closeoutLetterDate "2017-06-01"^^xsd:date' in roe
+    for s in ("Voellinger", "Bigham", "Marshall Drive", "Dear", "Tofu Yu", "Edgar Martin"):
+        assert s not in ttl, s
+    print("warning_letters.py archive self-test PASSED")
+
+
 def _selftest():
     import tempfile
+    _selftest_archive()
     total, rows = parse_list(_LIST)
     assert total == 3779 and len(rows) == 4, (total, rows)
     assert is_individual("Jane Doe, M.D.", "x") and is_individual("Jane Doe", "Clinical Investigator")
