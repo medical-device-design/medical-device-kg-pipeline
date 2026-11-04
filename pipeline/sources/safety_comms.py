@@ -11,11 +11,22 @@ LISTINGS (static HTML tables on fda.gov, checked 2026-10-28)
   "2024 Letters to Health Care Providers", "2023 ..."), which this module follows. Column order
   differs between years (the 2023 letters table is Title | Date), so columns are found from the
   header row, not by position.
-  NOT FOLLOWED: "2011-2022 Safety Communications (Archived)" and "2016-2022 Letters to Health Care
-  Providers (Archived)" point to FDA's web archive on public4.pagefreezer.com, and a few 2023 rows
-  link to archived copies there too. Archive hosts are out of scope for this pipeline, so those
-  listings are not read, and an archived row is kept from the fda.gov listing only (title, date,
-  product area, link) with an ex:dataQualityNote saying its page was not fetched.
+  ARCHIVED YEARS (fetch_archive, PI approval of 2026-11-03): "2011-2022 Safety Communications
+  (Archived)" and "2016-2022 Letters to Health Care Providers (Archived)" point to FDA's web archive
+  (public4.pagefreezer.com, capture of 2024-08-01). Each archived hub lists the year pages, which FDA
+  links in turn to Pagefreezer captures (2019-2021) or to its earlier Archive-It collection 7993
+  (2011-2018 safety communications); 2022 is a relative link inside the 2024 capture. fetch_archive()
+  follows exactly those links (_archive.py), reads every year page and every detail page from the
+  archive copy FDA links (a relative link is read from the same archive at the same time), and
+  caches everything under archive/. A few 2023 rows on the fda.gov listing also link to an archived
+  copy; their pages are read the same way. Old-site pages (2011-2016, www.fda.gov/MedicalDevices/...
+  ucmNNNNNN.htm) list Spanish versions as separate rows ("(en Espanol)"), which are skipped as on the
+  current listings, write two-digit years (12/22/16) and end with "Page Last Updated:".
+  An archive-derived record keeps the same fields and IRI rule; ex:url and ex:sourceUrl are the
+  archive URL, ex:archivedFrom the original fda.gov URL, and ex:dataQualityNote says it was read
+  from FDA's archive copy. A communication already listed on fda.gov is not duplicated. Not read:
+  "Safety Communications Issued Prior to 2011" (outside the approved years).
+  If an archived page cannot be read, the row is kept from its listing with a note.
 
 DETAIL PAGES (fda.gov only, 1 request/second, cached under pages/)
   kept: title, "Date Issued", the dates in the "Timeline of Communication Updates" table
@@ -46,6 +57,7 @@ import common     # noqa: E402
 import base       # noqa: E402
 import scrub      # noqa: E402
 import _cfweb     # noqa: E402
+import _archive   # noqa: E402
 
 NAME = "safety_comms"
 DATASET = "cdrh/safety-communications"
@@ -156,18 +168,84 @@ def parse_listing(page):
     return items, years, sorted(set(archived))
 
 
-def parse_detail(page):
+# Old-site header labels written inside paragraphs: "Audience: ...", "Specialties Plastic surgeons, ..."
+# (these labels never open a lead sentence, so the colon is optional), "Device: ..." / "Purpose: ..."
+# (colon required), or a bare label paragraph ("Specialties") above its text.
+_LABEL_LOOSE = re.compile(r"(?i)^(date issued|audiences?|medical specialties|specialties)\b\s*:?\s*(.*)$")
+_LABEL_STRICT = re.compile(r"(?i)^(devices?|products?|purpose)(?:\s*:\s*(.*)|\s*)$")
+
+
+def _label(s):
+    """'Audience: Nurses' -> ('audience', 'Nurses'); 'Purpose' -> ('purpose', ''); else None."""
+    m = _LABEL_LOOSE.match(s or "") or _LABEL_STRICT.match(s or "")
+    return (m.group(1).lower(), (m.group(2) or "").strip()) if m else None
+
+
+def parse_detail(page, archived=False):
+    """archived=True also reads the old-site layout (dc.title, "Page Last Updated:", the "Purpose:"
+    paragraph as the lead) of pages read from FDA's archive."""
     out = {"title": None, "date_issued": None, "updates": [], "current_as_of": None, "summary": None,
            "device_names": [], "brand_names": [], "product_codes": [], "k510": [], "pma": [], "dis": []}
     m = re.search(r'<meta name="dcterms.title" content="([^"]*)"', page)
+    if not m and archived:
+        m = re.search(r'<meta name="dc.title" content="(?:Safety Communications - |Letters to Health Care Providers - )?([^"]*)"', page)
     out["title"] = _one(m.group(1)) if m else None
     main = _main(page)
     e = main.find("Content current as of")
+    if e < 0 and archived:
+        e = main.find("Page Last Updated")
     if e > 0:
         tail = main[e:e + 600]
         cm = _USDATE.search(_one(tail) or "")
         out["current_as_of"] = cm.group(1) if cm else None
         main = main[:e]
+    if archived:
+        # 2011-2018 pages are sectioned by headings (Date Issued, Audience, Specialties, Device(s),
+        # Purpose, Summary of Problem and Scope, ...): the lead is the Purpose paragraph, else the first
+        # substantial paragraph outside the header sections
+        parts = re.split(r"(?is)<h[1-6]\b[^>]*>(.*?)</h[1-6]>", main)
+        sections = [((_one(parts[i]) or "").rstrip(":").strip().lower(), parts[i + 1]) for i in range(1, len(parts) - 1, 2)]
+        skip = re.compile(r"^(date issued|audiences?|medical specialties|specialties|devices?|products?)$")
+        pick, least = None, 80
+        if not any(n == "date issued" for n, _ in sections):
+            sections = []                                  # current layout: the generic rule below
+        for name, body in sections:
+            if name.startswith("purpose"):
+                pick, least = body, 20                     # the Purpose paragraph even when short
+                break
+        for name, body in ([] if pick else sections):
+            if not skip.match(name) and any(len(_one(p) or "") >= 80 for p in re.findall(r"(?s)<p\b[^>]*>(.*?)</p>", body)):
+                pick = body
+                break
+        for p in re.findall(r"(?s)<p\b[^>]*>(.*?)</p>", pick or ""):
+            s = _one(p) or ""
+            if len(s) >= least:
+                out["summary"] = s
+                break
+        if not out["summary"]:
+            # 2011-2015 pages put the labels inside paragraphs ("<p><strong>Audience:</strong> ...")
+            # a label paragraph is "Label: text" or the bare label ("Specialties") over its text
+            texts = [_one(p) or "" for p in re.findall(r"(?s)<p\b[^>]*>(.*?)</p>", main)]
+            first, purpose, after = None, None, None
+            for s in texts:
+                m = _label(s)
+                if m:
+                    name, rest = m
+                    if name == "purpose" and len(rest) >= 80:
+                        purpose = rest
+                        break
+                    after = name if not rest else None
+                    continue
+                if after == "purpose" and len(s) >= 80:
+                    purpose = s
+                    break
+                if after:                                   # the text under a bare header label
+                    after = None
+                    continue
+                if first is None and len(s) >= 80 and not s.startswith("Date Issued"):
+                    first = s
+            if any(_label(s) for s in texts):               # labelled layout: never a label paragraph
+                out["summary"] = purpose or first
     text = _cfweb.text(main) or ""
     flat = " ".join(text.split())
     dm = re.search(r"Date Issued:?\s*" + _LONGDATE.pattern, flat)
@@ -177,7 +255,7 @@ def parse_detail(page):
         lm = _LONGDATE.search(flat[:600])
         out["date_issued"] = lm.group(1) if lm else None
     # lead paragraph: the first substantial <p> of the article (FDA-written)
-    for p in re.findall(r"(?s)<p\b[^>]*>(.*?)</p>", main):
+    for p in re.findall(r"(?s)<p\b[^>]*>(.*?)</p>", main) if not out["summary"] else []:
         s = _one(p) or ""
         if len(s) >= 80 and not s.startswith("Date Issued"):
             out["summary"] = s
@@ -221,7 +299,7 @@ def _name(url):
     return "detail_" + _cfweb.safe_name(key_of(url))
 
 
-def fetch(dest, delay=1.0, log=print, list_max_age_days=0.5):
+def fetch(dest, delay=1.0, log=print, list_max_age_days=0.5, archive=True):
     dest = Path(dest)
     f = _cfweb.Fetcher(dest, delay=delay)
     listings, archived, failed = [], [], []
@@ -260,6 +338,8 @@ def fetch(dest, delay=1.0, log=print, list_max_age_days=0.5):
         f"cached {f.cached}, failed {len(failed)}; archived listings not fetched: {sorted(set(archived))}")
     m = base.Manifest(source=NAME, dataset=DATASET, retrieved_at=base.today(), files=[])
     m.write(dest / "manifest.json")
+    if archive:
+        fetch_archive(dest, delay=delay, log=log)        # cached: a rerun reads nothing again
     return m
 
 
@@ -280,6 +360,184 @@ def _items(src):
     return out
 
 
+# ---------------------------------------------------------------------------
+#  FDA's archive copies (fetch_archive)
+# ---------------------------------------------------------------------------
+ARCHIVE_YEARS = {"Safety Communication": (2011, 2022), "Letter to Health Care Providers": (2016, 2022)}
+_YEAR_TEXT = {"Safety Communication": re.compile(r"(?i)^\s*(20\d\d)\s+Safety\s+Communications\s*$"),
+              "Letter to Health Care Providers": re.compile(r"(?i)^\s*(20\d\d)\s+Letters\s+to\s+Health\s+Care\s+Providers\s*$")}
+_HREF_ANY = re.compile(r"""(?is)<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>(.*?)</a>""")
+_SHORTDATE = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{2}|\d{4})\b")
+archive_ref = _archive.ref_of          # (kind, timestamp, original fda.gov url) of a link
+archive_view_url = _archive.view_url
+
+
+def _norm_date(t):
+    """'12/22/16' or '12/22/2016' -> '12/22/2016'."""
+    m = _SHORTDATE.search(t or "")
+    if not m:
+        return None
+    y = int(m.group(3))
+    y = y + 2000 if y < 100 else y
+    return f"{int(m.group(1)):02d}/{int(m.group(2)):02d}/{y}"
+
+
+_SPANISH = re.compile(r"(?i)\ben\s+espa(?:ñ|&ntilde;|n)ol\b|\bcomunica(?:do|ción|cion)\s+de\s+seguridad\b|"
+                      r"\bcarta\s+(?:a|para)\s+(?:los\s+)?proveedores\b")
+
+
+def is_spanish(title):
+    """The Spanish version of a communication (listed as its own row on old-site year pages)."""
+    return bool(_SPANISH.search(title or ""))
+
+
+def parse_archived_listing(page):
+    """Year page read from the archive (current or old-site layout) -> [dict(title, href, date, product_area)].
+    Rows for the Spanish version of a communication ('... (en Espanol)') are skipped."""
+    main = _main(page)
+    items = []
+    for t in _TABLE.findall(main):
+        hdr, rows = [], []
+        for tr in _TR.findall(t):
+            cells = _CELL.findall(tr)
+            if cells and all(k == "th" for k, _ in cells) and not hdr:
+                hdr = [(_one(c) or "").lower() for _, c in cells]
+            elif cells:
+                rows.append([c for _, c in cells])
+        di = next((i for i, x in enumerate(hdr) if x == "date" or x.startswith("date")), None)
+        for cells in rows:
+            ti = next((i for i, c in enumerate(cells) if _HREF_ANY.search(c)), None)
+            if ti is None:
+                continue
+            a = _HREF_ANY.search(cells[ti])
+            href = next(g for g in a.groups()[:3] if g is not None)
+            title = _one(a.group(4))
+            if not title or is_spanish(title):
+                continue
+            pi = next((i for i, x in enumerate(hdr) if ("product" in x or "device" in x) and i != ti), None)
+            date = None
+            for i, c in enumerate(cells):
+                if i == ti:
+                    continue
+                if di is None or i == di:
+                    date = _norm_date(_one(c))
+                    if date:
+                        break
+            items.append({"title": title, "href": href, "date": date,
+                          "product_area": _one(cells[pi]) if pi is not None and pi < len(cells) else None})
+    return items
+
+
+def _links(page):
+    return [(next(g for g in m.groups()[:3] if g is not None), _one(m.group(4)) or "")
+            for m in _HREF_ANY.finditer(_main(page))]
+
+
+def fetch_archive(dest, delay=1.0, log=print):
+    """Read the archived listings FDA links (see module docstring) -> archive.json."""
+    dest = Path(dest)
+    meta = json.loads((dest / "lists.json").read_text(encoding="utf-8"))
+    rd = _archive.Reader(dest / "archive", delay=delay, log=log)
+    hubs = []
+    for href in meta.get("archived_not_fetched", []):
+        ref = archive_ref(href)
+        typ = "Letter to Health Care Providers" if "letters-health-care-providers" in href else "Safety Communication"
+        if ref and ref[2].rstrip("/") in [r[1] for r in ROOTS]:
+            hubs.append((typ, ref))
+    listings, items, failed, skipped_years, seen_years = [], [], [], [], set()
+    for typ, href_ref in hubs:
+        try:
+            hm, hp = rd.get(href_ref)
+        except (_archive.Missing, _archive.Refused) as e:
+            failed.append([archive_view_url(href_ref), str(e)])
+            if isinstance(e, _archive.Refused):
+                raise
+            continue
+        lo, hi = ARCHIVE_YEARS[typ]
+        for href, txt in _links(hp):
+            ym = _YEAR_TEXT[typ].match(txt)
+            if not ym:
+                if "prior to" in txt.lower():
+                    skipped_years.append([typ, txt, href])
+                continue
+            year = int(ym.group(1))
+            if not lo <= year <= hi:
+                continue
+            yref = archive_ref(href, base=(href_ref[0], href_ref[1]))
+            if not yref or (typ, yref) in seen_years:       # the hub repeats some links in its page navigation
+                continue
+            seen_years.add((typ, yref))
+            try:
+                ym_, yp = rd.get(yref)
+            except _archive.Missing as e:
+                failed.append([archive_view_url(yref), str(e)])
+                continue
+            rows = parse_archived_listing(yp)
+            listings.append(dict(ym_, type=typ, year=year, rows=len(rows)))
+            log(f"  safety_comms archive: {typ} {year}: {len(rows)} rows ({ym_['archive_url']})")
+            for it in rows:
+                iref = archive_ref(it["href"], base=(ym_["kind"], ym_["ts"]))
+                items.append(dict(it, type=typ, year=year, listing=ym_["archive_url"], ref=iref))
+    # rows on the fda.gov listings that link to an archived copy
+    for url, it in _items(dest).items():
+        if not is_fda(url):
+            ref = archive_ref(url)
+            if ref:
+                items.append({"title": it["title"], "href": url, "date": it["date"], "product_area": it["product_area"],
+                              "type": it["types"][0], "year": None, "listing": it["listed_on"][0], "ref": ref,
+                              "fda_listed": True})
+    n, refused = 0, None
+    for it in items:
+        ref = it["ref"]
+        if not ref or not ref[2].startswith(SITE + "/") or "/media/" in ref[2] or ref[2].lower().endswith(".pdf"):
+            continue
+        try:
+            dm, _ = rd.get(tuple(ref))
+            it["detail"] = dm
+        except _archive.Missing as e:
+            failed.append([archive_view_url(ref), str(e)])
+        except _archive.Refused as e:                     # the host kept refusing after long pauses: stop
+            refused = str(e)
+            log(f"  safety_comms archive: STOPPED, {refused}")
+            break
+        n += 1
+        if n % 25 == 0:
+            log(f"  safety_comms archive: {n} detail pages (fetched {rd.f.fetched}, cached {rd.f.cached})")
+    (dest / "archive.json").write_text(json.dumps({
+        "date": base.today(), "hubs": [[t, archive_view_url(r)] for t, r in hubs], "listings": listings,
+        "items": items, "failed": failed, "not_read": skipped_years, "refused": refused,
+        "host_refusals": rd.f.refusals}, indent=1), encoding="utf-8")
+    log(f"  safety_comms archive: {len(listings)} year pages, {len(items)} rows, {n} detail pages; "
+        f"fetched {rd.f.fetched}, cached {rd.f.cached}, failed {len(failed)}")
+    return len(items)
+
+
+def _archived_records(src):
+    """archive.json -> [record dict] (rows of archived year pages and archived links on fda.gov listings)."""
+    p = Path(src) / "archive.json"
+    if not p.exists():
+        return []
+    a = json.loads(p.read_text(encoding="utf-8"))
+    out = []
+    for it in a["items"]:
+        ref = it.get("ref")
+        if not ref or is_spanish(it.get("title")):
+            continue
+        ref = tuple(ref)
+        d, cap = None, None
+        dm = it.get("detail")
+        if dm:
+            pg = Path(src) / "archive" / "pages" / f"{dm['page']}.html"
+            if pg.exists():
+                d = parse_detail(pg.read_text(encoding="utf-8", errors="replace"), archived=True)
+                cap = dm.get("capture_ts")
+        out.append({"title": it["title"], "date": it["date"], "type": it["type"], "product_area": it["product_area"],
+                    "original": ref[2], "archive_url": (dm or {}).get("archive_url") or archive_view_url(ref),
+                    "kind": ref[0], "capture": cap, "detail": d, "fda_listed": it.get("fda_listed", False),
+                    "href": it["href"], "retrieved": a.get("date")})
+    return out
+
+
 def transform(src, out, retrieved_at=None):
     src, out = Path(src), Path(out)
     if retrieved_at is None and (src / "manifest.json").exists():
@@ -288,27 +546,62 @@ def transform(src, out, retrieved_at=None):
         except Exception:
             retrieved_at = None
     items = _items(src)
+    arch = _archived_records(src)
+    by_href = {}
+    for r in arch:
+        if r["fda_listed"]:
+            by_href[r["href"]] = r
+    recs = {}
+    for url, it in items.items():                     # fda.gov listings (some rows link to an archived copy)
+        recs[key_of(url)] = dict(it, url=url, archived=by_href.get(url) if not is_fda(url) else None)
     st = base.Stats(source=NAME)
     hits, codes = {}, set()
-    counts = {"detail": 0, "archived_only": 0, "with_pc": 0, "with_sub": 0, "with_di": 0, "with_names": 0}
+    counts = {"detail": 0, "archived_only": 0, "with_pc": 0, "with_sub": 0, "with_di": 0, "with_names": 0,
+              "archive_records": 0, "archive_with_detail": 0, "archive_duplicates_of_fda_listing": 0}
+    for r in arch:                                    # rows of archived year pages
+        if r["fda_listed"]:
+            continue
+        key = key_of(r["original"])
+        if key in recs:
+            rec = recs[key]
+            if rec.get("archived") is None and is_fda(rec["url"]):
+                counts["archive_duplicates_of_fda_listing"] += 1
+                continue
+            if r["type"] not in rec["types"]:
+                rec["types"].append(r["type"])
+            continue
+        recs[key] = {"title": r["title"], "date": r["date"], "product_area": r["product_area"], "types": [r["type"]],
+                     "url": r["archive_url"], "archived": r}
     with base.TurtleWriter(out) as w:
-        for url in sorted(items, key=key_of):
-            it = items[url]
-            key = key_of(url)
+        for key in sorted(recs):
+            it = recs[key]
+            url = it["url"]
+            ar = it.get("archived")
             d = None
             p = src / "pages" / f"{_name(url)}.html"
             if is_fda(url) and p.exists():
                 d = parse_detail(p.read_text(encoding="utf-8", errors="replace"))
                 counts["detail"] += 1
+            elif ar:
+                d = ar["detail"]
+                counts["archive_records"] += 1
+                counts["archive_with_detail"] += bool(d)
             title = it["title"] or (d or {}).get("title")
             issued = _iso(it["date"]) or _iso((d or {}).get("date_issued"))
             pairs = [("a", "ex:SafetyCommunication"),
                      ("rdfs:label", common.lit(title)),
                      ("ex:issueDate", common.date_lit(issued))]
             pairs += [("ex:communicationType", common.lit(t)) for t in it["types"]]
-            pairs += [("ex:url", common.lit(url)),
+            pairs += [("ex:url", common.lit(ar["archive_url"] if ar else url)),
                       ("ex:productArea", common.lit(it["product_area"]))]
-            if not is_fda(url):
+            if ar:
+                pairs.append(("ex:archivedFrom", common.lit(ar["original"])))
+                pdf = "/media/" in ar["original"] or ar["original"].lower().endswith(".pdf")
+                pairs.append(("ex:dataQualityNote", common.lit(
+                    _archive.note(ar["kind"], ar["capture"]) if d else
+                    "listed on FDA's archived listing as a PDF document, which is not read" if pdf else
+                    "listed on FDA's archived listing; the page could not be read from the archive")))
+            elif not is_fda(url):
                 counts["archived_only"] += 1
                 pairs.append(("ex:dataQualityNote", common.lit(
                     "listed by FDA with a link to its web archive; the archived page was not fetched")))
@@ -337,7 +630,8 @@ def transform(src, out, retrieved_at=None):
                 counts["with_sub"] += bool(d["k510"] or d["pma"])
                 counts["with_di"] += bool(d["dis"])
                 counts["with_names"] += bool(d["device_names"] or d["brand_names"])
-            pairs += common.provenance(DATASET, key, source_url=url, retrieved_at=retrieved_at)
+            pairs += common.provenance(DATASET, key, source_url=ar["archive_url"] if ar else url,
+                                       retrieved_at=(ar.get("retrieved") or retrieved_at) if ar else retrieved_at)
             w.block(iri.safety_communication(key), pairs)
             st.records += 1
         for pc in sorted(codes):
@@ -387,8 +681,91 @@ _DETAIL = '''<meta name="dcterms.title" content="Update: Import Alert for Certai
 <p>Content current as of:</p><p><time datetime="2026-10-26T12:40:01Z">10/26/2026</time></p></div>'''
 
 
+# Verbatim fragments read 2026-11-03 from FDA's archive copies (rows trimmed): the archived hub
+# (Pagefreezer capture of 2024-08-01, links trimmed to four), the 2016 year page (Archive-It, old-site
+# layout with a Spanish row), the 2019 year page (Pagefreezer, "Device Name | Date"), and a shortened
+# old-site detail page (headings and paragraphs as published; body cut after the Purpose paragraph).
+_A_HUB = '''<div role="main"><h3>Safety Communications</h3>
+<ul>
+	<li><a data-entity-substitution="canonical" data-entity-type="node" data-entity-uuid="ef6533a6-3eba-489c-ad3e-883802052e85" href="/medical-devices/safety-communications/2022-safety-communications" title="2022 Safety Communications">2022&nbsp;Safety Communications</a></li>
+	<li><a href="https://public4.pagefreezer.com/browse/FDA/16-06-2022T13:39/https:/www.fda.gov/medical-devices/safety-communications/2019-safety-communications">2019 Safety Communications</a>&nbsp;(Archived)</li>
+	<li><a href="http://wayback.archive-it.org/7993/20171114130910/https://www.fda.gov/MedicalDevices/Safety/AlertsandNotices/ucm553855.htm" target="_blank">2016 Safety Communications</a>&nbsp;(Archived)</li>
+	<li><a href="http://wayback.archive-it.org/7993/20170722043349/https://www.fda.gov/MedicalDevices/Safety/AlertsandNotices/ucm559436.htm" target="_blank">Safety Communications Issued Prior to 2011</a>&nbsp;(Archived)</li>
+</ul></div>'''
+_A_2016 = '''<div role="main"><table width='100%' class='table table-striped tablesorter table-bordered' cellspacing='2' id='customTable'> <thead> <tr><th id='' name='' title='Click to Sort By Medical Device Safety Communication' scope='col'>Medical Device Safety Communication</th><th id='' name='' title='Click to Sort By Date' scope='col'data-type='numeric'>Date</th></tr> </thead> <tbody> <tr> <td> <a href=/MedicalDevices/Safety/AlertsandNotices/ucm534515.htm target='_self'><linktitle>FDA Warns Health Care Providers Against Relying Solely on Zika Virus Serological IgM Assay Results; Reminds them to Wait for Confirmatory Test Results Before Making Patient Management Decisions: FDA Safety Communication</linktitle></a> </td> <td data-value="20161222"> 12/22/16 </td> </tr> <!--displaySectionIncludeName=csfl_loop_nodes--> <tr> <td> <a href=/MedicalDevices/Safety/AlertsandNotices/ucm535502.htm target='_self'><linktitle>La FDA advierte a los proveedores de atención médica que no deben basarse únicamente en los resultados de la prueba serológica de IgM frente al virus del Zika; les recuerda que esperen los resultados de la prueba de confirmación antes de decidir el tratamiento del paciente: Comunicación de Seguridad de la FDA (en Español)</linktitle></a> </td> <td data-value="20161222"> 12/22/16 </td> </tr></tbody></table></div>'''
+_A_2019 = '''<div role="main"><h3>2019 Safety Communications</h3> <table align="left" border="0" cellpadding="0" cellspacing="0" class="table table-responsive" style="width: 100%;" summary="2019 Medical Device Safety Communications" width="100%"> <thead> <tr> <th scope="col">Device Name</th> <th scope="col">Date</th> </tr> </thead> <tbody> <tr> <td><a data-entity-substitution="canonical" data-entity-type="node" data-entity-uuid="db83b5ce-23d9-4b57-b68a-8682602fc97b" href="/medical-devices/safety-communications/update-fda-warns-biotin-may-interfere-lab-tests-fda-safety-communication" title="UPDATE: The FDA Warns that Biotin May Interfere with Lab Tests: FDA Safety Communication">UPDATE: The FDA Warns that Biotin May Interfere with Lab Tests: FDA Safety Communication</a></td> <td>11/05/19</td> </tr></tbody></table></div>'''
+_A_DETAIL = '''<title>FDA Warns Health Care Providers Against Relying Solely on Zika Virus Serological IgM Assay Results; Reminds them to Wait for Confirmatory Test Results Before Making Patient Management Decisions: FDA Safety Communication</title>
+<meta name="dc.title" content="Safety Communications - FDA Warns Health Care Providers Against Relying Solely on Zika Virus Serological IgM Assay Results; Reminds them to Wait for Confirmatory Test Results Before Making Patient Management Decisions: FDA Safety Communication"/>
+<div role="main"><h1>FDA Warns Health Care Providers Against Relying Solely on Zika Virus Serological IgM Assay Results; Reminds them to Wait for Confirmatory Test Results Before Making Patient Management Decisions: FDA Safety Communication</h1>
+<h3>Date Issued:</h3><p>December 22, 2016</p><h3>Audiences:</h3><ul><li>Health care providers</li><li>Pregnant women potentially exposed to Zika</li></ul><h3>Medical Specialties:</h3><p>Primary care, Obstetrics and Gynecology, and Infectious Disease</p><h3>Product:</h3><p>The ZIKV Detect IgM Capture ELISA is manufactured by InBios International, Inc. The test is used for the preliminary (presumptive) detection of Zika virus IgM antibodies in human sera collected from patients with a history of clinical signs and symptoms associated with Zika virus infection.</p><h3>Purpose:</h3><p>The FDA is alerting physicians who care for pregnant women meeting CDC Zika virus clinical criteria and/or CDC Zika virus epidemiological criteria, that the U.S. commercial testing facility, Laboratory Corporation of America (LabCorp), has reported some false positive results from the ZIKV Detect test.</p>
+Page Last Updated: 10/19/2017</li> --> Page Last Updated: 10/19/2017 <!-- </ul> --> <br/></div>'''
+
+
+def _selftest_archive():
+    import tempfile
+    links = _links(_A_HUB)
+    refs = [(txt, archive_ref(h, base=("pf", "2024-08-01T13:49:00Z"))) for h, txt in links]
+    assert refs[0][1] == ("pf", "2024-08-01T13:49:00Z", SITE + "/medical-devices/safety-communications/2022-safety-communications"), refs[0]
+    assert refs[1][1] == ("pf", "2022-06-16T13:39:00Z", SITE + "/medical-devices/safety-communications/2019-safety-communications"), refs[1]
+    assert refs[2][1] == ("ai", "20171114130910", SITE + "/MedicalDevices/Safety/AlertsandNotices/ucm553855.htm"), refs[2]
+    assert [bool(_YEAR_TEXT["Safety Communication"].match(t)) for t, _ in refs] == [True, True, True, False]
+    a16 = parse_archived_listing(_A_2016)
+    assert len(a16) == 1 and a16[0]["date"] == "12/22/2016" and a16[0]["href"].endswith("ucm534515.htm"), a16
+    a19 = parse_archived_listing(_A_2019)
+    assert a19[0]["date"] == "11/05/2019" and a19[0]["title"].startswith("UPDATE: The FDA Warns that Biotin"), a19
+    assert a19[0]["product_area"] is None                                # "Device Name" is the title column
+    d = parse_detail(_A_DETAIL, archived=True)
+    assert d["date_issued"] == "December 22, 2016" and d["current_as_of"] == "10/19/2017", d
+    assert d["summary"].startswith("The FDA is alerting physicians") and d["title"].startswith("FDA Warns"), d
+    # labels inside paragraphs (2011-2015 layout; constructed in that format)
+    d2 = parse_detail('<div role="main"><p><strong>Date Issued:</strong> May 1, 2013</p><p><strong>Audience:</strong> '
+                      'Health care providers who treat or manage patients with implanted pumps and the staff who support '
+                      'them</p><p><strong>Specialties</strong> Nurses and Nurse Practitioners, Pharmacists, Physician '
+                      'Assistants and Primary Care Physicians</p><p><strong>Purpose:</strong></p><p>The FDA is informing '
+                      'health care providers of a problem that may cause the pump to stop delivering medicine.</p></div>',
+                      archived=True)
+    assert d2["summary"].startswith("The FDA is informing health care providers"), d2["summary"]
+    assert _label("Specialties Plastic surgeons") == ("specialties", "Plastic surgeons") and _label("Devices that use x") is None
+    assert archive_view_url(refs[2][1]) == "https://wayback.archive-it.org/7993/20171114130910/" + refs[2][1][2]
+    with tempfile.TemporaryDirectory() as t:
+        t = Path(t)
+        (t / "pages").mkdir()
+        (t / "archive" / "pages").mkdir(parents=True)
+        (t / "pages" / "list_sc23.html").write_text(_SC2023, encoding="utf-8")
+        (t / "lists.json").write_text(json.dumps({"listings": [
+            ["Safety Communication", SITE + "/medical-devices/safety-communications/2023-safety-communications",
+             "list_sc23"]]}), encoding="utf-8")
+        iref = archive_ref(a16[0]["href"], base=("ai", "20171114130910"))
+        (t / "archive" / "pages" / "d1.html").write_text(_A_DETAIL, encoding="utf-8")
+        dm = {"kind": "ai", "ts": "20171114130910", "original_url": iref[2], "page": "d1", "capture_ts": "20171114200638",
+              "archive_url": "https://wayback.archive-it.org/7993/20171114200638/" + iref[2]}
+        sc23 = parse_listing(_SC2023)[0][0]
+        (t / "archive.json").write_text(json.dumps({"date": "2026-11-03", "items": [
+            dict(a16[0], type="Safety Communication", year=2016, listing="x", ref=iref, detail=dm),
+            dict(a19[0], type="Safety Communication", year=2019, listing="y",
+                 ref=archive_ref(a19[0]["href"], base=("pf", "2022-06-16T13:39:00Z"))),
+            {"title": sc23["title"], "href": sc23["url"], "date": sc23["date"], "product_area": "Syringes",
+             "type": "Safety Communication", "year": None, "listing": "z", "ref": archive_ref(sc23["url"]),
+             "fda_listed": True}]}), encoding="utf-8")
+        st = transform(t, t / "sc.ttl", retrieved_at="2026-10-28")
+        ttl = (t / "sc.ttl").read_text(encoding="utf-8")
+    assert st.records == 3, st                               # 2016 row (with page), 2019 row (no page), 2023 row
+    zika = ttl.split(f"<{iri.safety_communication('ucm534515.htm')}>")[1].split("\n\n")[0]
+    assert 'ex:issueDate "2016-12-22"^^xsd:date' in zika and 'ex:contentCurrentAsOf "2017-10-19"^^xsd:date' in zika
+    assert f'ex:archivedFrom "{iref[2]}"' in zika and 'ex:sourceUrl "https://wayback.archive-it.org/7993/20171114200638/' in zika
+    assert "read from FDA's web archive copy (Archive-It collection 7993, captured 2017-11-14)" in zika, zika
+    assert 'ex:retrievedAt "2026-11-03"^^xsd:date' in zika and "ex:summary \"The FDA is alerting physicians" in zika
+    assert "La FDA advierte" not in ttl                                    # Spanish row skipped
+    assert "the page could not be read from the archive" in ttl            # 2019 row whose page was not read
+    syr = ttl.split("evaluating_plastic_syringes")[1].split("\n\n")[0]
+    assert "ex:archivedFrom \"https://www.fda.gov/medical-devices/safety-communications/evaluating-plastic" in syr, syr
+    assert ttl.count("rdfs:label") == st.records
+    print("safety_comms.py archive self-test PASSED")
+
+
 def _selftest():
     import tempfile
+    _selftest_archive()
     items, years, arch = parse_listing(_HCP)
     assert len(items) == 2 and items[0]["date"] == "10/20/2026", items
     assert items[0]["product_area"].startswith("Ureterorenoscopes"), items[0]
