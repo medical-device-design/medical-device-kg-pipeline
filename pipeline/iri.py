@@ -529,6 +529,89 @@ def device_discontinuance(key):
     return _instance("device-discontinuance", slug(key))
 
 
+# ---- v0.0.7: development tools, conformity assessment, third party review -
+def mddt(key):
+    """A qualified Medical Device Development Tool, keyed on the MDDT submission number
+    without its supplement suffix (U240030/S001 -> U240030), or on the tool name when
+    FDA's summary of evidence gives no number.
+        mddt('U240030') -> .../id/mddt/u240030"""
+    return _instance("mddt", slug(key))
+
+
+def asca_testing_laboratory(asca_id):
+    """An ASCA-accredited testing laboratory (current or withdrawn), keyed on its ASCA ID.
+        asca_testing_laboratory('TL-8') -> .../id/asca-testing-laboratory/tl_8"""
+    return _instance("asca-testing-laboratory", slug(asca_id))
+
+
+def asca_accreditation_body(asca_id):
+    """An ASCA-recognized accreditation body, keyed on its ASCA ID.
+        asca_accreditation_body('AB-11') -> .../id/asca-accreditation-body/ab_11"""
+    return _instance("asca-accreditation-body", slug(asca_id))
+
+
+def asca_scope(asca_id, *key):
+    """One entry in the scope of an ASCA laboratory or accreditation body, keyed on the
+    ASCA ID plus the recognition number (or standard designation) and, for
+    biocompatibility, the test method. Empty key parts are skipped.
+        asca_scope('TL-8', '2-258')                 -> .../id/asca-scope/tl_8/2_258
+        asca_scope('TL-8', '2-258', 'Cytotoxicity') -> .../id/asca-scope/tl_8/2_258/cytotoxicity"""
+    return _instance("asca-scope", slug(asca_id), *[slug(k) for k in key if k])
+
+
+def third_party_review_organization(name):
+    """A 510(k) third party review organization (Accredited Person), keyed on the
+    NORMALIZED firm name (identity.normalize_org; pass the normalized form, as for
+    firm_name()), so a withdrawn organization with no FDA party key and the lower-case
+    names on product-code pages resolve to the same node.
+        third_party_review_organization('CENTER FOR MEASUREMENT STANDARDS INDUSTRIAL')
+        -> .../id/third-party-review-organization/center_for_measurement_standards_industrial"""
+    return _instance("third-party-review-organization", slug(name))
+
+
+# ---- v0.0.7: FDA Data Dashboard (inspections, citations, actions, imports) -
+def fda_inspection(inspection_id):
+    """An FDA inspection (Data Dashboard Inspection ID).
+        fda_inspection('1277550') -> .../id/fda-inspection/1277550"""
+    return _instance("fda-inspection", slug(inspection_id))
+
+
+def fda_inspection_citation(inspection_id, citation_id):
+    """One citation (Form FDA 483 observation) posted for an inspection.
+        fda_inspection_citation('1227688', '3696') -> .../id/fda-inspection/1227688/citation/3696"""
+    return _instance("fda-inspection", slug(inspection_id), "citation", slug(citation_id))
+
+
+def fda_citation_reference(citation_id):
+    """A Data Dashboard citation reference (Citation ID: the Act/CFR number and FDA's
+    short and long descriptions), shared by every inspection that cites it.
+        fda_citation_reference('3696') -> .../id/fda-citation/3696"""
+    return _instance("fda-citation", slug(citation_id))
+
+
+def fda_compliance_action(action_type, case_id, fei=None):
+    """A Data Dashboard compliance action (warning letter, injunction, seizure), keyed on
+    the action type, the case/injunction ID and the firm's FEI ("no-fei" when FDA gives none).
+        fda_compliance_action('Warning Letter', '729208', '3002807798')
+        -> .../id/fda-compliance-action/warning_letter/729208/3002807798
+        fda_compliance_action('Seizure', '12345') -> .../id/fda-compliance-action/seizure/12345/no-fei"""
+    return _instance("fda-compliance-action", slug(action_type), slug(case_id),
+                     slug(fei) if fei else "no-fei")
+
+
+def import_refusal(shipment_id):
+    """An import refusal (Data Dashboard shipment ID: entry/line/sub-line).
+        import_refusal('UPS-0443680-5/1/1') -> .../id/import-refusal/ups_0443680_5_1_1"""
+    return _instance("import-refusal", slug(shipment_id))
+
+
+def import_refusal_charge(charge_id):
+    """An import refusal charge code (Data Dashboard charge ID), shared by every refusal
+    that carries it.
+        import_refusal_charge('118') -> .../id/import-refusal-charge/118"""
+    return _instance("import-refusal-charge", slug(charge_id))
+
+
 # ===========================================================================
 #  SELF-TEST -- pins every minter against the layout verified on the live
 #  endpoint (2026-09-07). Run `python3 iri.py`; a failure means an IRI drifted
@@ -609,6 +692,21 @@ def _selftest():
         device_shortage("HBA"):              "device-shortage/hba",
         device_shortage(["FMF", "FMI"]):     "device-shortage/fmf_fmi",
         device_discontinuance("0123456789abcdef"): "device-discontinuance/0123456789abcdef",
+        mddt("U240030"):                     "mddt/u240030",
+        asca_testing_laboratory("TL-8"):     "asca-testing-laboratory/tl_8",
+        asca_accreditation_body("AB-11"):    "asca-accreditation-body/ab_11",
+        asca_scope("TL-8", "2-258"):         "asca-scope/tl_8/2_258",
+        asca_scope("TL-8", "2-258", "Cytotoxicity"): "asca-scope/tl_8/2_258/cytotoxicity",
+        third_party_review_organization("CENTER FOR MEASUREMENT STANDARDS INDUSTRIAL"):
+                                             "third-party-review-organization/center_for_measurement_standards_industrial",
+        fda_inspection("1277550"):           "fda-inspection/1277550",
+        fda_inspection_citation("1227688", "3696"): "fda-inspection/1227688/citation/3696",
+        fda_citation_reference("3696"):      "fda-citation/3696",
+        fda_compliance_action("Warning Letter", "729208", "3002807798"):
+                                             "fda-compliance-action/warning_letter/729208/3002807798",
+        fda_compliance_action("Seizure", "12345"): "fda-compliance-action/seizure/12345/no-fei",
+        import_refusal("UPS-0443680-5/1/1"): "import-refusal/ups_0443680_5_1_1",
+        import_refusal_charge("118"):        "import-refusal-charge/118",
     }
     for got, want in cases.items():
         assert suffix(got) == want, f"MINT DRIFT: got {suffix(got)!r}, want {want!r}"
@@ -622,6 +720,9 @@ def _selftest():
     # vocabulary terms live under NS, not ID
     assert term("UDIDeviceRecord") == f"{NS}UDIDeviceRecord"
     assert term("hasProductCode") == f"{NS}hasProductCode"
+
+    # empty ASCA scope key parts are skipped, not minted as empty segments
+    assert asca_scope("TL-8", "", "2-258") == asca_scope("TL-8", "2-258")
 
     # determinism: same input -> same IRI, always
     assert product_code("BRT") == product_code("brt") == product_code(" BRT ")
