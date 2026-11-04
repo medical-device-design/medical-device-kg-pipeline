@@ -201,17 +201,17 @@ _ROWS = [
      "Center": "CDRH", "ActionType": "Warning Letter", "ActionTakenDate": "2025-04-01", "FiscalYear": "2025",
      "CaseInjunctionID": "700001", "FirmProfile": "https://datadashboard.fda.gov/oii/firmprofile.htm?FEIc=3009999999"},
 ]
-_WL = """<https://bmedesign.org/medical-device-kg/id/warning-letter/729208_10072026>
+_WL = """<{a}>
     a ex:WarningLetter ;
     ex:letterIssueDate "2026-10-07"^^xsd:date ;
     ex:marcsCmsNumber "729208" .
 
-<https://bmedesign.org/medical-device-kg/id/warning-letter/729208_10012026>
+<{b}>
     a ex:WarningLetter ;
     ex:letterIssueDate "2026-10-01"^^xsd:date ;
     ex:marcsCmsNumber "729208" .
 
-<https://bmedesign.org/medical-device-kg/id/warning-letter/700001_04012025>
+<{c}>
     a ex:WarningLetter ;
     ex:marcsCmsNumber "700001" .
 """
@@ -224,7 +224,9 @@ def _selftest():
         t = Path(t)
         (t / "pages").mkdir()
         (t / "pages" / "devices_s0000001.json").write_text(json.dumps({"result": _ROWS}), encoding="utf-8")
-        (t / "warning_letters.ttl").write_text(_WL, encoding="utf-8")
+        (t / "warning_letters.ttl").write_text(_WL.format(a=iri.warning_letter("729208-10072026"),
+                                                          b=iri.warning_letter("729208-10012026"),
+                                                          c=iri.warning_letter("700001-04012025")), encoding="utf-8")
         base.Manifest(source=NAME, dataset=DATASET, retrieved_at="2026-11-04", files=[]).write(t / "manifest.json")
         st = transform(t, t / "dd_compliance_actions.ttl", wl_ttl=t / "warning_letters.ttl")   # not $DD_WARNING_LETTERS_TTL
         ttl = (t / "dd_compliance_actions.ttl").read_text(encoding="utf-8")
@@ -232,7 +234,7 @@ def _selftest():
     assert st.records == 5, st                                   # Olympus duplicate merged
     ol = ttl.split(f"<{dd.fda_compliance_action('Warning Letter', '729208', '2429304')}>")[1].split("\n\n")[0]
     assert "a ex:ComplianceAction" in ol and ol.count("ex:companyName") == 1
-    assert "ex:relatedWarningLetter <https://bmedesign.org/medical-device-kg/id/warning-letter/729208_10072026>" in ol
+    assert f"ex:relatedWarningLetter <{iri.warning_letter('729208-10072026')}>" in ol
     assert "729208_10012026" not in ol                           # same number, other date: not linked
     assert f"ex:hasManufacturer <{iri.manufacturer(fei='2429304')}>" in ol
     assert 'rdfs:label "Warning Letter 729208: Olympus Corporation of the Americas"' in ol
