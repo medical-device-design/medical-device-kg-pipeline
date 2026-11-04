@@ -14,8 +14,20 @@ The older address .../medical-device-safety/medical-device-shortages-list now an
     Manufacturer Name | Device Trade Name | Reason for Discontinuance;
   * an "Update: <date>" callout naming product codes FDA removed from the shortage list.
 The page's "Excel" button is DataTables' client-side export of these same HTML tables,
-so the HTML is the complete published data. FDA links the 2020-2024 discontinuances
-only to an archived copy on web.archive.org; that archive is NOT fetched (project rule).
+so the HTML is the complete published data.
+
+ARCHIVED 2020-2024 DISCONTINUANCES (fetch_archive, PI approval of 2026-11-03)
+FDA links "Discontinuances reported from 2020-2024 (archived)" to ONE web.archive.org snapshot of
+this same page (https://web.archive.org/web/20251224005704/https:/www.fda.gov/...; a single
+snapshot, not a list of snapshots). fetch_archive() reads the link from the latest cached page and
+reads exactly that snapshot in raw mode (.../20251224005704id_/...), cached under archive/. Its
+Discontinuance List has the older column order (Category | Product Code | Manufacturer Name |
+Device Trade Name | Reason for Discontinuance | Date Posted (YYYY/MM/DD)), and some rows give the
+date as "TBD". Only its discontinuance rows are used (the shortage rows of December 2025 are not).
+A row is dropped when the current list already has the same discontinuance (same key, or same
+product codes, manufacturer and trade name). Kept rows carry the same keys and IRI rule plus
+ex:archivedFrom (the fda.gov page), ex:sourceUrl (the snapshot) and an ex:dataQualityNote saying
+they were read from FDA's archive copy; ex:lastSeenOnList is the snapshot date.
 
 STATUS ACROSS RUNS
 Each run caches the page as pages/medical-device-shortages-list_<YYYY-MM-DD>.html and
@@ -64,6 +76,7 @@ import common     # noqa: E402
 import base       # noqa: E402
 import scrub      # noqa: E402
 import _cfweb     # noqa: E402
+import _archive   # noqa: E402
 from identity import normalize_org   # noqa: E402
 
 NAME = "shortages"
@@ -75,6 +88,10 @@ SHORTAGE_HDR = ["Category", "Product Code (Description)", "Availability and Esti
                 "Additional Information", "Reason for Interruption (per 506J)", "Date (YYYY/MM/DD)"]
 DISC_HDR = ["Date Posted", "Category", "Product Code", "Manufacturer Name", "Device Trade Name",
             "Reason for Discontinuance"]
+DISC_HDR_ARCHIVED = ["Category", "Product Code", "Manufacturer Name", "Device Trade Name",
+                     "Reason for Discontinuance", "Date Posted (YYYY/MM/DD)"]
+_ARCHIVE_LINK = re.compile(r'(?is)<a\b[^>]*href="(https?://web\.archive\.org/web/(\d{14})/[^"]+)"[^>]*>\s*'
+                           r'Discontinuances\s+reported\s+from\s+(\d{4})\s*-\s*(\d{4})\s*\(archived\)')
 ST_CURRENT = "on shortage list"
 ST_REMOVED = "removed from shortage list"
 ST_DISC = "permanent discontinuance"
@@ -91,7 +108,7 @@ _MONTHS = ["january", "february", "march", "april", "may", "june", "july", "augu
 # ===========================================================================
 #  Fetch
 # ===========================================================================
-def fetch(dest, delay=1.0):
+def fetch(dest, delay=1.0, archive=True):
     dest = Path(dest)
     f = _cfweb.Fetcher(dest, delay=delay)
     day = base.today()
@@ -102,7 +119,61 @@ def fetch(dest, delay=1.0):
     (dest / "fetch_log.json").write_text(json.dumps(
         {"date": day, "fetched_now": f.fetched, "cached": f.cached, "bytes": len(body)}), encoding="utf-8")
     print(f"  shortages: snapshot {day} ({len(body):,} bytes; fetched {f.fetched}, cached {f.cached})")
+    if archive:
+        fetch_archive(dest, delay=delay)
     return base.Manifest(source=NAME, dataset=DATASET, retrieved_at=day, files=[])
+
+
+def fetch_archive(dest, delay=1.0):
+    """Read the web.archive.org snapshot that the latest cached page links for the archived
+    discontinuances -> archive.json (+ the raw snapshot under archive/)."""
+    dest = Path(dest)
+    snaps = snapshots(dest)
+    if not snaps:
+        raise FileNotFoundError("no cached shortage page; run fetch() first")
+    page = snaps[-1][1].read_text(encoding="utf-8", errors="replace")
+    m = _ARCHIVE_LINK.search(page)
+    if not m:
+        raise ValueError("the shortage page no longer links an archived discontinuance list")
+    link, ts = htmllib.unescape(m.group(1)), m.group(2)
+    wb = _archive.Wayback(_archive.Fetcher(dest / "archive", delay=delay))
+    r = wb.get(PAGE_URL, ts, name=f"wb_{ts}_medical-device-shortages-list.html")
+    rows = parse_archived_page(r["body"])
+    (dest / "archive.json").write_text(json.dumps({
+        "date": base.today(), "fda_link": link, "years": [m.group(3), m.group(4)], "snapshot": ts,
+        "capture_ts": r["capture_ts"], "archive_url": r["archive_url"],
+        "file": f"wb_{ts}_medical-device-shortages-list.html", "rows": len(rows)}, indent=1), encoding="utf-8")
+    print(f"  shortages: archived discontinuances {m.group(3)}-{m.group(4)}: {len(rows)} rows from {r['archive_url']}")
+    return len(rows)
+
+
+def parse_archived_page(html):
+    """Discontinuance rows of the archived page (older column order) -> the same dicts as parse_page."""
+    out = []
+    found = False
+    for hdr, rows in _tables(html):
+        if hdr != DISC_HDR_ARCHIVED:
+            continue
+        found = True
+        for c in rows:
+            if len(c) != 6:
+                continue
+            codes, desc = split_code_cell(_txt(c[1]))
+            posted = _txt(c[5])
+            pm = re.match(r"^(\d{4})/(\d{1,2})/(\d{1,2})$", posted or "")
+            out.append({"posted": posted, "posted_iso": f"{pm.group(1)}-{int(pm.group(2)):02d}-{int(pm.group(3)):02d}"
+                        if pm else None, "category": _txt(c[0]), "codes": codes, "desc": desc,
+                        "code_text": _txt(c[1]), "manufacturer": _txt(c[2]), "trade": _txt(c[3]),
+                        "reason": _clean(_txt(c[4]))})
+    if not found:
+        raise ValueError("archived shortage page: discontinuance table not found (header changed)")
+    return out
+
+
+def _same(x):
+    """Content identity of a discontinuance regardless of its posting date."""
+    return (",".join(x["codes"]) or (x["code_text"] or ""), normalize_org(x["manufacturer"]) or "",
+            " ".join((x["trade"] or "").lower().split()))
 
 
 # ===========================================================================
@@ -251,6 +322,25 @@ def transform(src, out, retrieved_at=None):
             update_date = d["update_date"]
             for codes, desc in d["removed"]:
                 removed["_".join(codes)] = (codes, desc)
+    # discontinuances 2020-2024, read from the web.archive.org snapshot FDA links (fetch_archive)
+    arch, arch_meta, arch_dup = {}, None, 0
+    ap = Path(src) / "archive.json"
+    if ap.exists():
+        arch_meta = json.loads(ap.read_text(encoding="utf-8"))
+        rows = parse_archived_page((Path(src) / "archive" / arch_meta["file"]).read_text(encoding="utf-8",
+                                                                                         errors="replace"))
+        current = {_same(x) for x in disc.values()}
+        for x in rows:
+            k = disc_key(x)
+            if k in disc or _same(x) in current:
+                arch_dup += 1
+                continue
+            m = arch.setdefault(k, dict(x, category=[], reason=[]))
+            for f in ("category", "reason"):
+                if x[f] and x[f] not in m[f]:
+                    m[f].append(x[f])
+        cts = arch_meta["capture_ts"]
+        arch_seen = f"{cts[:4]}-{cts[4:6]}-{cts[6:8]}"
     hubs, firms, counts = set(), {}, {ST_CURRENT: 0, ST_REMOVED: 0, ST_DISC: 0}
     with base.TurtleWriter(out) as w:
         for k in sorted(set(short) | set(removed)):
@@ -288,13 +378,14 @@ def transform(src, out, retrieved_at=None):
                                        retrieved_at=seen or retrieved_at or latest_day)
             w.block(iri.device_shortage(s["codes"]), list(dict.fromkeys(pairs)))
             st.records += 1
-        for k in sorted(disc):
-            x = disc[k]
+        for k in sorted(set(disc) | set(arch)):
+            archived = k not in disc
+            x = arch[k] if archived else disc[k]
             counts[ST_DISC] += 1
             pairs = [("a", "ex:DeviceDiscontinuance"),
                      ("rdfs:label", common.lit(f"Device discontinuance: {x['trade'] or x['code_text']}"
                                                + (f" ({x['manufacturer']})" if x["manufacturer"] else ""))),
-                     ("ex:datePosted", common.date_lit(x["posted"]))]
+                     ("ex:datePosted", common.date_lit(x["posted_iso"] if archived else x["posted"]))]
             pairs += [("ex:deviceCategory", common.lit(c)) for c in x["category"]]
             for c in x["codes"]:
                 pc = common.product_code(c)
@@ -310,11 +401,19 @@ def transform(src, out, retrieved_at=None):
                       ("ex:tradeName", common.lit(x["trade"]))]
             pairs += [("ex:discontinuanceReason", common.lit(r)) for r in x["reason"]]
             pairs += [("ex:shortageListStatus", common.lit(ST_DISC)),
-                      ("ex:lastSeenOnList", common.date_lit(disc_seen[k]))]
+                      ("ex:lastSeenOnList", common.date_lit(arch_seen if archived else disc_seen[k]))]
+            if archived:
+                note = _archive.ARCHIVE_NOTE.format(f"web.archive.org snapshot of {arch_seen}, linked by FDA as "
+                                                    f"discontinuances reported from {'-'.join(arch_meta['years'])}")
+                if not x["posted_iso"]:
+                    note += f"; the date posted is given as \"{x['posted']}\""
+                pairs += [("ex:archivedFrom", common.lit(PAGE_URL)), ("ex:dataQualityNote", common.lit(note))]
+                counts["archived_discontinuances"] = counts.get("archived_discontinuances", 0) + 1
             if nf:
                 firms.setdefault(nf, x["manufacturer"])
-            pairs += common.provenance(DATASET, f"discontinuance/{k}", source_url=PAGE_URL + "#discontinuance",
-                                       retrieved_at=disc_seen[k])
+            pairs += common.provenance(DATASET, f"discontinuance/{k}",
+                                       source_url=(arch_meta["archive_url"] if archived else PAGE_URL) + "#discontinuance",
+                                       retrieved_at=arch_meta["date"] if archived else disc_seen[k])
             w.block(iri.device_discontinuance(k), list(dict.fromkeys(pairs)))
             st.records += 1
         for nf in sorted(firms):
@@ -340,8 +439,46 @@ _PAGE = """<p></p><div class="callout">
 <hr><h2><a class="ck-anchor" id="shortage"></a>Device Shortage List</h2><p>Categories of devices that are currently on the MDSL:</p><div class="lcds-datatable lcds-datatable--ckeditor table-responsive"><table class="table" aria-readonly="true" data-excel-button="true" data-order="[ 0, &quot;desc&quot; ]" data-paging="true" data-searching="true" role="grid"><thead><tr role="row"><th scope="col">Category</th><th scope="col">Product Code (Description)</th><th scope="col">Availability and Estimated Shortage Duration</th><th scope="col">Additional Information</th><th scope="col">Reason for Interruption (per 506J)</th><th scope="col">Date (YYYY/MM/DD)</th></tr></thead><tbody><tr><td>Neurology – Neurosurgical, Neurointerventional and Neurodiagnostic Devices</td><td><strong>HBA</strong> (Neurosurgical pattie)</td><td>Estimated through Q4 2026</td><td>Neurosurgical patties, sponges &amp; strip products are in shortage. The FDA has issued a <a href="/medical-devices/letters-health-care-providers/disruptions-availability-neurosurgical-patties-sponges-and-strips-letter-health-care-providers" data-entity-type="node" data-entity-uuid="b6b33db0-c557-4e7e-b544-4b0888fe7b74" data-entity-substitution="canonical" title="Disruptions in Availability of Neurosurgical Patties, Sponges, and Strips - Letter to Health Care Providers">Letter to Health Care Providers</a> to provide recommendations to health care providers and facilities that use neurosurgical patties.</td><td><ul><li>Shortage or discontinuance of a component, part or accessory of the device.</li></ul></td><td>2026/05/06 initial</td></tr><tr><td>Cardiovascular - Circulatory Support, Structural and Vascular Devices</td><td><strong>BYS </strong>(Oxygenator, Long Term Support Greater Than 6 Hours)</td><td>Estimated through Q1 2027</td><td>Oxygenator devices intended for extracorporeal circulation are in shortage.</td><td><ul><li>Shortage or discontinuance of a component, part or accessory of the device.&nbsp;</li></ul></td><td><p>2023/09/11 Initial</p><p>2025/07/16 Reverified</p><p>2026/03/13<br>Reverified</p><p>2026/06/16<br>Reverified</p></td></tr></tbody></table></div><h2><a class="ck-anchor" id="discontinuance"></a>Discontinuance List</h2><p><a href="https://web.archive.org/web/20251224005704/https:/www.fda.gov/medical-devices/medical-device-supply-chain-and-shortages/medical-device-shortages-list">Discontinuances reported from 2020-2024 (archived)</a></p><div class="lcds-datatable lcds-datatable--ckeditor table-responsive"><table class="table" aria-readonly="true" data-excel-button="true" data-order="[ 0, &quot;desc&quot; ]" data-paging="true" data-searching="true" role="grid"><thead><tr role="row"><th scope="col">Date Posted</th><th>Category</th><th scope="col">Product Code</th><th scope="col">Manufacturer Name</th><th scope="col">Device Trade Name</th><th scope="col">Reason for Discontinuance</th></tr></thead><tbody><tr><td>10/26/2026</td><td>HEMATOLOGY - Immunology and Hemotology Devices</td><td>GKZ&nbsp; (COUNTER, DIFFERENTIAL CELL)</td><td>Abbott Laboratories</td><td>CELL-DYN Sapphire Systems (Model/Catalog # 08H00-01; 08H00-03)</td><td>Discontinuance of the manufacture of the device</td></tr><tr><td>10/26/2026</td><td>ANESTHESIOLOGY - Anesthesia, Respiratory, &amp; Sleep Devices</td><td>CAF (NEBULIZER (DIRECT PATIENT INTERFACE)</td><td>SunMed Group Holdings, LLC dba AirLife</td><td>Customed Nebulizer Kit (SKU # 1004391)</td><td>Discontinuance of the manufacture of the device; The device has not been commercially distributed in the US for an extended period.</td></tr><tr><td>10/26/2026</td><td>ANESTHESIOLOGY - Anesthesia, Respiratory, &amp; Sleep Devices</td><td>CAF (NEBULIZER (DIRECT PATIENT INTERFACE)</td><td>SunMed Group Holdings, LLC dba AirLife</td><td>Customed Nebulizer Kit (SKU # 1004391)</td><td>Discontinuance of the manufacture of the device</td></tr></tbody></table></div>"""
 
 
+# Archived discontinuance table (web.archive.org snapshot 20251224005704 that FDA links): header and the
+# first and last rows' cell text verbatim (markup reduced to the table, trade-name list trimmed); the
+# third row is constructed to repeat a current (2026) row with an older date and must be dropped.
+_ARCH_PAGE = """<h2><a class="ck-anchor" id="discontinuance"></a>Discontinuance List</h2><table class="table"><thead><tr role="row"><th scope="col">Category</th><th scope="col">Product Code</th><th scope="col">Manufacturer Name</th><th scope="col">Device Trade Name</th><th scope="col">Reason for Discontinuance</th><th scope="col">Date Posted (YYYY/MM/DD)</th></tr></thead><tbody><tr><td>General Hospital – Drug Delivery and General Hospital Devices, and Human Factors Devices</td><td>FRN (Pump, Infusion)</td><td>Fresenius Kabi AG</td><td>Agilia Infusion Pump (Model: VOLUMAT MC AGILIA US, Product Code: Z021135)</td><td>Discontinuance of the manufacture of the device. Alternatives are available for customers.</td><td>2024/07/10</td></tr><tr><td>General Hospital - Drug Delivery and General Hospital Devices, and Human Factors</td><td>FOX (Stand, Infusion)</td><td>Cardinal Health</td><td>KANGAROO JOEY BLACK MINI BACK PACK (SKU 770025)</td><td>Discontinuance of the manufacture of the device.</td><td>TBD</td></tr><tr><td>HEMATOLOGY - Immunology and Hemotology Devices</td><td>GKZ (COUNTER, DIFFERENTIAL CELL)</td><td>Abbott Laboratories</td><td>CELL-DYN Sapphire Systems (Model/Catalog # 08H00-01; 08H00-03)</td><td>Discontinuance of the manufacture of the device</td><td>2024/01/05</td></tr></tbody></table>"""
+
+
+def _selftest_archive():
+    import tempfile
+    m = _ARCHIVE_LINK.search(_PAGE)
+    assert m and m.group(2) == "20251224005704" and m.group(3, 4) == ("2020", "2024"), m
+    rows = parse_archived_page(_ARCH_PAGE)
+    assert len(rows) == 3 and rows[0]["posted_iso"] == "2024-07-10" and rows[1]["posted_iso"] is None, rows
+    assert rows[0]["codes"] == ["FRN"] and rows[0]["manufacturer"] == "Fresenius Kabi AG"
+    with tempfile.TemporaryDirectory() as t:
+        t = Path(t)
+        (t / "pages").mkdir()
+        (t / "archive").mkdir()
+        (t / "pages" / SNAP.format("2026-10-28")).write_text(_PAGE, encoding="utf-8")
+        (t / "archive" / "snap.html").write_text(_ARCH_PAGE, encoding="utf-8")
+        au = "https://web.archive.org/web/20251224005704/" + PAGE_URL
+        (t / "archive.json").write_text(json.dumps({"date": "2026-11-03", "years": ["2020", "2024"],
+                                                    "snapshot": "20251224005704", "capture_ts": "20251224005704",
+                                                    "archive_url": au, "file": "snap.html"}), encoding="utf-8")
+        st = transform(t, t / "shortages.ttl", retrieved_at="2026-10-28")
+        ttl = (t / "shortages.ttl").read_text(encoding="utf-8")
+        status = json.loads((t / "shortages.status.json").read_text(encoding="utf-8"))
+    # 2 shortages + DXT (callout) + 2 current discontinuances + 2 archived (GKZ repeat dropped)
+    assert st.records == 7 and status["archived_discontinuances"] == 2, (st, status)
+    frn = next(b for b in ttl.split("\n\n") if "Agilia Infusion Pump" in b)
+    assert 'ex:datePosted "2024-07-10"^^xsd:date' in frn and 'ex:lastSeenOnList "2025-12-24"^^xsd:date' in frn, frn
+    assert f'ex:archivedFrom "{PAGE_URL}"' in frn and f'ex:sourceUrl "{au}#discontinuance"' in frn
+    assert "read from FDA's web archive copy (web.archive.org snapshot of 2025-12-24" in frn
+    assert 'the date posted is given as \\"TBD\\"' in ttl and 'ex:datePosted "TBD"' not in ttl
+    assert ttl.count('ex:tradeName "CELL-DYN Sapphire') == 1          # repeated GKZ row dropped
+    print("shortages.py archive self-test PASSED")
+
+
 def _selftest():
     import tempfile
+    _selftest_archive()
     assert split_code_cell("CAF (NEBULIZER (DIRECT PATIENT INTERFACE)") == (["CAF"], "NEBULIZER (DIRECT PATIENT INTERFACE)")
     assert split_code_cell("BYS (Oxygenator, Long Term Support Greater Than 6 Hours)")[0] == ["BYS"]
     d = parse_page(_PAGE)
