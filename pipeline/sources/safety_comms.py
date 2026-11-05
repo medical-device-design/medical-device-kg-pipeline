@@ -24,8 +24,19 @@ LISTINGS (static HTML tables on fda.gov, checked 2026-10-28)
   current listings, write two-digit years (12/22/16) and end with "Page Last Updated:".
   An archive-derived record keeps the same fields and IRI rule; ex:url and ex:sourceUrl are the
   archive URL, ex:archivedFrom the original fda.gov URL, and ex:dataQualityNote says it was read
-  from FDA's archive copy. A communication already listed on fda.gov is not duplicated. Not read:
-  "Safety Communications Issued Prior to 2011" (outside the approved years).
+  from FDA's archive copy. A communication already listed on fda.gov is not duplicated.
+  BEFORE 2011 (added November 5, 2026): the archived hub also links "Safety Communications Issued
+  Prior to 2011" (Archive-It 7993, ucm559436.htm, captured 2017-07-22). That page lists FDA's
+  archived pre-2011 sections; fetch_archive() reads three of them, as the same kind of record:
+    "Archived Medical Device Safety Communications" (ucm463040.htm)  -> "Safety Communication"
+    "Archived Public Health Notifications"                           -> "Public Health Notification"
+    "Archived Patient Alerts (Medical Devices)"                      -> "Patient Alert"
+  (Public Health Notifications were published until 2009 and Patient Alerts until 2010, when FDA
+  replaced both with Safety Communications.) The first two are tables (Title | Date; a date cell
+  carries data-value="YYYYMMDD", used before the two-digit year shown); the patient alerts are a
+  link list with the date after a <br />. Each listed page is read from the same archive (nearest
+  capture). Not read from that page: "Archived Tips and Articles on Device Safety" (consumer articles,
+  not communications) and "Information About Heparin" (a topic page).
   If an archived page cannot be read, the row is kept from its listing with a note.
 
 DETAIL PAGES (fda.gov only, 1 request/second, cached under pages/)
@@ -372,14 +383,53 @@ archive_ref = _archive.ref_of          # (kind, timestamp, original fda.gov url)
 archive_view_url = _archive.view_url
 
 
-def _norm_date(t):
-    """'12/22/16' or '12/22/2016' -> '12/22/2016'."""
+def _norm_date(t, data_value=None):
+    """'12/22/16' or '12/22/2016' -> '12/22/2016'. A cell's data-value="YYYYMMDD" (old-site
+    tables) wins; otherwise a two-digit year after the current year is read as 19YY ('9/2/83')."""
+    if data_value and re.fullmatch(r"(19|20)\d{6}", data_value):
+        return f"{data_value[4:6]}/{data_value[6:8]}/{data_value[:4]}"
     m = _SHORTDATE.search(t or "")
     if not m:
         return None
     y = int(m.group(3))
-    y = y + 2000 if y < 100 else y
+    if y < 100:
+        from datetime import date as _d
+        y = y + 2000 if y <= _d.today().year % 100 else y + 1900
     return f"{int(m.group(1)):02d}/{int(m.group(2)):02d}/{y}"
+
+
+_DATA_VALUE = re.compile(r'(?i)<td\b[^>]*\bdata-value\s*=\s*"(\d{8})"')
+_CELL_ATTR = re.compile(r"(?s)<(t[hd])\b([^>]*)>(.*?)</t[hd]>")
+
+# "Safety Communications Issued Prior to 2011": the archived sections read, and their record type
+PRIOR_SECTIONS = [
+    (re.compile(r"(?i)^\s*Archived\s+Medical\s+Device\s+Safety\s+Communications\s*$"), "Safety Communication"),
+    (re.compile(r"(?i)^\s*Archived\s+Public\s+Health\s+Notifications\s*$"), "Public Health Notification"),
+    (re.compile(r"(?i)^\s*Archived\s+Patient\s+Alerts\b.*$"), "Patient Alert"),
+]
+PRIOR_NOT_READ = re.compile(r"(?i)^\s*(Archived\s+Tips\s+and\s+Articles|Information\s+About\s+Heparin)")
+_LI = re.compile(r"(?is)<li\b[^>]*>(.*?)</li>")
+
+
+def parse_archived_link_list(page, folder=None):
+    """Old-site link list ('<li><a href=...>Title</a> [ARCHIVED] <br />02/18/2010</li>', the archived
+    Patient Alerts page) -> [dict(title, href, date, product_area=None)]. folder: keep only links
+    under this path (e.g. '/PatientAlerts/'), so page navigation is never read as a row."""
+    items = []
+    for li in _LI.findall(_main(page)):
+        a = _HREF_ANY.search(li)
+        if not a:
+            continue
+        href = next(g for g in a.groups()[:3] if g is not None)
+        title = _one(a.group(4))
+        if not title or not re.search(r"(?i)/ucm\d+\.htm", href) or is_spanish(title):
+            continue
+        if folder and folder.lower() not in href.lower():
+            continue
+        tail = _one(li[a.end():]) or ""
+        items.append({"title": title, "href": href, "date": _norm_date(tail) if _SHORTDATE.search(tail) else None,
+                      "product_area": None})
+    return items
 
 
 _SPANISH = re.compile(r"(?i)\ben\s+espa(?:ñ|&ntilde;|n)ol\b|\bcomunica(?:do|ción|cion)\s+de\s+seguridad\b|"
@@ -397,15 +447,16 @@ def parse_archived_listing(page):
     main = _main(page)
     items = []
     for t in _TABLE.findall(main):
-        hdr, rows = [], []
+        hdr, rows, dvals = [], [], []
         for tr in _TR.findall(t):
-            cells = _CELL.findall(tr)
-            if cells and all(k == "th" for k, _ in cells) and not hdr:
-                hdr = [(_one(c) or "").lower() for _, c in cells]
+            cells = _CELL_ATTR.findall(tr)
+            if cells and all(k == "th" for k, _, _ in cells) and not hdr:
+                hdr = [(_one(c) or "").lower() for _, _, c in cells]
             elif cells:
-                rows.append([c for _, c in cells])
+                rows.append([c for _, _, c in cells])
+                dvals.append([(_DATA_VALUE.search(f"<td {a}>") or [None, None])[1] for _, a, _ in cells])
         di = next((i for i, x in enumerate(hdr) if x == "date" or x.startswith("date")), None)
-        for cells in rows:
+        for cells, dv in zip(rows, dvals):
             ti = next((i for i, c in enumerate(cells) if _HREF_ANY.search(c)), None)
             if ti is None:
                 continue
@@ -420,7 +471,7 @@ def parse_archived_listing(page):
                 if i == ti:
                     continue
                 if di is None or i == di:
-                    date = _norm_date(_one(c))
+                    date = _norm_date(_one(c), dv[i] if i < len(dv) else None)
                     if date:
                         break
             items.append({"title": title, "href": href, "date": date,
@@ -445,6 +496,7 @@ def fetch_archive(dest, delay=1.0, log=print):
         if ref and ref[2].rstrip("/") in [r[1] for r in ROOTS]:
             hubs.append((typ, ref))
     listings, items, failed, skipped_years, seen_years = [], [], [], [], set()
+    prior = []
     for typ, href_ref in hubs:
         try:
             hm, hp = rd.get(href_ref)
@@ -458,7 +510,9 @@ def fetch_archive(dest, delay=1.0, log=print):
             ym = _YEAR_TEXT[typ].match(txt)
             if not ym:
                 if "prior to" in txt.lower():
-                    skipped_years.append([typ, txt, href])
+                    pref = archive_ref(href, base=(href_ref[0], href_ref[1]))
+                    if pref and pref not in prior:
+                        prior.append(pref)
                 continue
             year = int(ym.group(1))
             if not lo <= year <= hi:
@@ -478,6 +532,36 @@ def fetch_archive(dest, delay=1.0, log=print):
             for it in rows:
                 iref = archive_ref(it["href"], base=(ym_["kind"], ym_["ts"]))
                 items.append(dict(it, type=typ, year=year, listing=ym_["archive_url"], ref=iref))
+    # "Safety Communications Issued Prior to 2011" and the archived sections it lists
+    for pref in prior:
+        try:
+            pm, pp = rd.get(pref)
+        except _archive.Missing as e:
+            failed.append([archive_view_url(pref), str(e)])
+            continue
+        seen_sec = set()
+        for href, txt in _links(pp):
+            if PRIOR_NOT_READ.match(txt):
+                skipped_years.append(["prior to 2011", txt, href])
+                continue
+            styp = next((t for rx, t in PRIOR_SECTIONS if rx.match(txt)), None)
+            sref = archive_ref(href, base=(pm["kind"], pm["ts"])) if styp else None
+            if not sref or sref in seen_sec:
+                continue
+            seen_sec.add(sref)
+            try:
+                sm, sp = rd.get(sref)
+            except _archive.Missing as e:
+                failed.append([archive_view_url(sref), str(e)])
+                continue
+            rows = parse_archived_listing(sp) or parse_archived_link_list(
+                sp, folder=sref[2].split("://", 1)[-1].split("/", 1)[-1].rsplit("/", 1)[0].rsplit("/", 1)[-1] + "/")
+            listings.append(dict(sm, type=styp, year=None, rows=len(rows), prior_to_2011=True))
+            log(f"  safety_comms archive: before 2011, {styp}: {len(rows)} rows ({sm['archive_url']})")
+            for it in rows:
+                iref = archive_ref(it["href"], base=(sm["kind"], sm["ts"]))
+                y = int(it["date"][-4:]) if it.get("date") else None
+                items.append(dict(it, type=styp, year=y, listing=sm["archive_url"], ref=iref))
     # rows on the fda.gov listings that link to an archived copy
     for url, it in _items(dest).items():
         if not is_fda(url):
@@ -701,8 +785,68 @@ _A_DETAIL = '''<title>FDA Warns Health Care Providers Against Relying Solely on 
 Page Last Updated: 10/19/2017</li> --> Page Last Updated: 10/19/2017 <!-- </ul> --> <br/></div>'''
 
 
+# Verbatim fragments read 2026-11-05 from Archive-It 7993 (whitespace trimmed): two links of the
+# "Safety Communications Issued Prior to 2011" page (ucm559436.htm), the last row of "Archived
+# Medical Device Safety Communications" (ucm463040.htm), a 1983 row of "Archived Public Health
+# Notifications" (the date shown as 9/2/83, data-value 19830902) and the first item of "Archived
+# Patient Alerts (Medical Devices)".
+_P_HUB = '''<div role="main"><ul><li><a href="http://wayback.archive-it.org/7993/20170111070041/http:/www.fda.gov/MedicalDevices/Safety/AlertsandNotices/PatientAlerts/default.htm"><linktitle>Archived Patient Alerts (Medical Devices)</linktitle></a></li>
+<li><a href="/MedicalDevices/Safety/AlertsandNotices/ucm463040.htm" ><linktitle>Archived Medical Device Safety Communications</linktitle></a>					<span style="margin-left:4px;">[ARCHIVED]</span></li>
+<li><a href="http://wayback.archive-it.org/7993/20170111070037/http:/www.fda.gov/MedicalDevices/Safety/AlertsandNotices/TipsandArticlesonDeviceSafety/default.htm"><linktitle>Archived Tips and Articles on Device Safety</linktitle></a></li></ul></div>'''
+_P_SC = '''<div role="main"><h2></h2><table width='100%' class='table table-striped tablesorter table-bordered' cellspacing='2' id='customTable'> <thead> <tr><th id='' name='' title='Click to Sort By Medical Device Safety Communication' scope='col'>Medical Device Safety Communication</th><th id='' name='' title='Click to Sort By Date' scope='col'data-type='numeric'>Date</th></tr> </thead> <tbody>
+<tr>
+<td>
+<a href=/MedicalDevices/Safety/AlertsandNotices/ucm135362.htm target='_self'><linktitle>MRI Safety: FDA Safety Communication</linktitle></a> 					<span style="margin-left:4px;">[ARCHIVED]</span>
+</td>
+<td data-value="20010918">
+09/18/01
+</td>
+</tr>
+</tbody> </table></div>'''
+_P_PHN = '''<div role="main"><table width='100%' class='table table-striped tablesorter table-bordered' cellspacing='2' id='customTable'> <thead> <tr><th id='' name='' title='Click to Sort By Title' scope='col'>Title</th><th id='' name='' title='Click to Sort By Date' scope='col'data-type='numeric'>Date</th></tr> </thead> <tbody>
+<tr>
+<td>
+<a href=/MedicalDevices/Safety/AlertsandNotices/PublicHealthNotifications/ucm241839.htm target='_self'><linktitle>FDA Safety Alert - Breathing System Connectors</linktitle></a> 					<span style="margin-left:4px;">[ARCHIVED]</span>
+</td>
+<td data-value="19830902">
+9/2/83
+</td>
+</tr>
+</tbody> </table></div>'''
+_P_PA = '''<div role="main"><p>Also available: <a href="/Safety/MedWatch/SafetyInformation/default.htm">additional FDA safety information from MedWatch</a></p>
+<div class='panel panel-default box'><div class='panel-heading'><h2 class='panel-title'>List of Patient Alerts</h2></div><div class='panel-body'><p>List of Patient Alerts in descending date order</p><ul>
+	<li><a href="/MedicalDevices/Safety/AlertsandNotices/PatientAlerts/ucm200896.htm" ><linktitle>Advice for Patients: Ear Candles</linktitle></a>					<span style="margin-left:4px;">[ARCHIVED]</span>
+
+	<br />02/18/2010
+	</li>
+	<li><a href="/MedicalDevices/Safety/AlertsandNotices/PatientAlerts/default.htm">More in Patient Alerts (Medical Devices)</a></li>
+</ul></div></div></div>'''
+
+
+def _selftest_prior():
+    hub = [(txt, next((t for rx, t in PRIOR_SECTIONS if rx.match(txt)), None), bool(PRIOR_NOT_READ.match(txt)))
+           for _, txt in _links(_P_HUB)]
+    assert hub == [("Archived Patient Alerts (Medical Devices)", "Patient Alert", False),
+                   ("Archived Medical Device Safety Communications", "Safety Communication", False),
+                   ("Archived Tips and Articles on Device Safety", None, True)], hub
+    ref = archive_ref(_links(_P_HUB)[1][0], base=("ai", "20170722043349"))
+    assert ref == ("ai", "20170722043349", SITE + "/MedicalDevices/Safety/AlertsandNotices/ucm463040.htm"), ref
+    sc = parse_archived_listing(_P_SC)
+    assert sc == [{"title": "MRI Safety: FDA Safety Communication", "href": "/MedicalDevices/Safety/AlertsandNotices/ucm135362.htm",
+                   "date": "09/18/2001", "product_area": None}], sc
+    phn = parse_archived_listing(_P_PHN)
+    assert phn[0]["date"] == "09/02/1983" and phn[0]["title"] == "FDA Safety Alert - Breathing System Connectors", phn
+    assert _norm_date("9/2/83") == "09/02/1983" and _norm_date("12/22/16") == "12/22/2016"
+    pa = parse_archived_link_list(_P_PA, folder="PatientAlerts/")
+    assert pa == [{"title": "Advice for Patients: Ear Candles",
+                   "href": "/MedicalDevices/Safety/AlertsandNotices/PatientAlerts/ucm200896.htm",
+                   "date": "02/18/2010", "product_area": None}], pa
+    print("safety_comms.py before-2011 self-test PASSED")
+
+
 def _selftest_archive():
     import tempfile
+    _selftest_prior()
     links = _links(_A_HUB)
     refs = [(txt, archive_ref(h, base=("pf", "2024-08-01T13:49:00Z"))) for h, txt in links]
     assert refs[0][1] == ("pf", "2024-08-01T13:49:00Z", SITE + "/medical-devices/safety-communications/2022-safety-communications"), refs[0]
@@ -746,10 +890,15 @@ def _selftest_archive():
                  ref=archive_ref(a19[0]["href"], base=("pf", "2022-06-16T13:39:00Z"))),
             {"title": sc23["title"], "href": sc23["url"], "date": sc23["date"], "product_area": "Syringes",
              "type": "Safety Communication", "year": None, "listing": "z", "ref": archive_ref(sc23["url"]),
-             "fda_listed": True}]}), encoding="utf-8")
+             "fda_listed": True},
+            dict(parse_archived_listing(_P_PHN)[0], type="Public Health Notification", year=1983, listing="w",
+                 ref=archive_ref(parse_archived_listing(_P_PHN)[0]["href"], base=("ai", "20170111063821")))]}),
+            encoding="utf-8")
         st = transform(t, t / "sc.ttl", retrieved_at="2026-10-28")
         ttl = (t / "sc.ttl").read_text(encoding="utf-8")
-    assert st.records == 3, st                               # 2016 row (with page), 2019 row (no page), 2023 row
+    assert st.records == 4, st                               # 2016 row (with page), 2019 row (no page), 2023 row, 1983 PHN
+    phn = ttl.split(f"<{iri.safety_communication('ucm241839.htm')}>")[1].split("\n\n")[0]
+    assert 'ex:communicationType "Public Health Notification"' in phn and 'ex:issueDate "1983-09-02"^^xsd:date' in phn, phn
     zika = ttl.split(f"<{iri.safety_communication('ucm534515.htm')}>")[1].split("\n\n")[0]
     assert 'ex:issueDate "2016-12-22"^^xsd:date' in zika and 'ex:contentCurrentAsOf "2017-10-19"^^xsd:date' in zika
     assert f'ex:archivedFrom "{iref[2]}"' in zika and 'ex:sourceUrl "https://wayback.archive-it.org/7993/20171114200638/' in zika
