@@ -1069,7 +1069,7 @@ ex:WarningLetter a owl:Class ;
 ex:SafetyCommunication a owl:Class ;
     rdfs:subClassOf ex:FDADataRecord ;
     rdfs:label "CDRH Safety Communication or Letter to Health Care Providers" ;
-    rdfs:comment "A CDRH safety communication or letter to health care providers (ex:communicationType tells which), listed on fda.gov or, for the archived years FDA links (safety communications 2011-2022, letters to health care providers 2016-2022), read from FDA's official web archive (Pagefreezer or Archive-It collection 7993); such a record has ex:archivedFrom (the original fda.gov URL) and an ex:dataQualityNote." .
+    rdfs:comment "A CDRH safety communication or letter to health care providers (ex:communicationType tells which), listed on fda.gov or, for the archived years FDA links (safety communications 2011-2022, letters to health care providers 2016-2022), read from FDA's official web archive (Pagefreezer or Archive-It collection 7993); such a record has ex:archivedFrom (the original fda.gov URL) and an ex:dataQualityNote. From FDA's archived page 'Safety Communications Issued Prior to 2011' it also holds the pre-2011 safety communications, Public Health Notifications (to 2009) and Patient Alerts (to 2010), with ex:communicationType 'Safety Communication', 'Public Health Notification' or 'Patient Alert'." .
 
 ex:DeviceShortage a owl:Class ;
     rdfs:subClassOf ex:FDADataRecord ;
@@ -1095,9 +1095,9 @@ ex:citesCfrSection        a owl:ObjectProperty ; rdfs:range ex:CFRTitle21Section
 ex:citesCfrPart           a owl:ObjectProperty ; rdfs:range ex:CfrPart ;
     rdfs:label "cites 21 CFR part" ; rdfs:comment "A 21 CFR part cited by a warning letter or mentioned in a guidance document's page summary." .
 ex:mentionsK510Record     a owl:ObjectProperty ; rdfs:range ex:K510Record ;
-    rdfs:label "mentions 510(k) or De Novo record" ; rdfs:comment "A 510(k) or De Novo number quoted in the text of a warning letter or safety communication." .
+    rdfs:label "mentions 510(k) or De Novo record" ; rdfs:comment "A 510(k) or De Novo number quoted in the text of a warning letter or safety communication, or given for a FOIA reading room record." .
 ex:mentionsPMARecord      a owl:ObjectProperty ; rdfs:range ex:PMARecord ;
-    rdfs:label "mentions PMA record" ; rdfs:comment "A PMA number quoted in the text of a warning letter or safety communication." .
+    rdfs:label "mentions PMA record" ; rdfs:comment "A PMA number quoted in the text of a warning letter or safety communication, or given for a FOIA reading room record." .
 ex:namesDeviceIdentifier  a owl:ObjectProperty ; rdfs:range ex:UDIIdentifier ;
     rdfs:label "names device identifier" ; rdfs:comment "A GS1 device identifier (GTIN-14 with a valid check digit) quoted on an FDA page." .
 
@@ -1348,3 +1348,22 @@ ex:chargeId               a owl:DatatypeProperty ; rdfs:domain ex:ImportRefusalC
 ex:chargeCode             a owl:DatatypeProperty ; rdfs:domain ex:ImportRefusalCharge ; rdfs:range xsd:string ; rdfs:label "charge code" .
 ex:chargeStatement        a owl:DatatypeProperty ; rdfs:domain ex:ImportRefusalCharge ; rdfs:range xsd:string ; rdfs:label "charge statement" .
 ex:actSectionName         a owl:DatatypeProperty ; rdfs:domain ex:ImportRefusalCharge ; rdfs:range xsd:string ; rdfs:label "Act section" .
+
+# ---------------------------------------------------------------------------
+# v0.0.7 (November 5, 2026): CDRH FOIA Electronic Reading Room, PMA document PDFs
+# ---------------------------------------------------------------------------
+ex:FOIAReadingRoomRecord a owl:Class ;
+    rdfs:subClassOf ex:FDADataRecord ;
+    rdfs:label "CDRH FOIA Electronic Reading Room record" ;
+    rdfs:comment "A FOIA-released record listed in the CDRH FOIA Electronic Reading Room (foia_reading_room.py): listing metadata and the document link only; the document itself is never downloaded or stored, and no person's name is kept." .
+ex:readingRoomCategory    a owl:DatatypeProperty ; rdfs:domain ex:FOIAReadingRoomRecord ; rdfs:range xsd:string ;
+    rdfs:label "reading room category" ; rdfs:comment "The listing's first column when it is not a document number (Letter, Recall, Presentation)." .
+ex:fileSize               a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "file size (as published)" .
+ex:namesFirm              a owl:ObjectProperty ; rdfs:range ex:FirmName ;
+    rdfs:label "names firm" ; rdfs:comment "A firm named in the title of a listed record (firm names only, normalized as for ex:FirmName)." .
+ex:mentionsPostmarket522Study a owl:ObjectProperty ; rdfs:range ex:Postmarket522Study ;
+    rdfs:label "mentions Section 522 study" ; rdfs:comment "A Section 522 order number (PS...) given for a listed record." .
+ex:labelingUrl            a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "labeling (PDF)" ; rdfs:comment "On ex:DeviceFDARecord: a PMA labeling PDF (FDA file suffix C, and D for Labeling Part 2), written only when an HTTP HEAD check answered 200 with a PDF." .
+ex:summaryDocumentType    a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "summary document type" ; rdfs:comment "What the PDF at ex:summaryUrl is, in FDA's words (for a PMA, 'Summary of Safety and Effectiveness'). For 510(k)s see ex:statementOrSummary." .

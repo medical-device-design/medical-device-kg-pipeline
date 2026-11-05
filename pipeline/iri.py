@@ -612,6 +612,15 @@ def import_refusal_charge(charge_id):
     return _instance("import-refusal-charge", slug(charge_id))
 
 
+# ---- v0.0.7: CDRH FOIA Electronic Reading Room ----------------------------
+def foia_reading_room_record(key):
+    """A record posted in the CDRH FOIA Electronic Reading Room, keyed on its document URL:
+    FDA's media id ("media_<id>") or the PDF file name without ".pdf".
+        foia_reading_room_record('media_93240') -> .../id/foia-reading-room-record/media_93240
+        foia_reading_room_record('UCM279425')   -> .../id/foia-reading-room-record/ucm279425"""
+    return _instance("foia-reading-room-record", slug(key))
+
+
 # ===========================================================================
 #  SELF-TEST -- pins every minter against the layout verified on the live
 #  endpoint (2026-09-07). Run `python3 iri.py`; a failure means an IRI drifted
@@ -707,6 +716,8 @@ def _selftest():
         fda_compliance_action("Seizure", "12345"): "fda-compliance-action/seizure/12345/no-fei",
         import_refusal("UPS-0443680-5/1/1"): "import-refusal/ups_0443680_5_1_1",
         import_refusal_charge("118"):        "import-refusal-charge/118",
+        foia_reading_room_record("media_93240"): "foia-reading-room-record/media_93240",
+        foia_reading_room_record("UCM279425"): "foia-reading-room-record/ucm279425",
     }
     for got, want in cases.items():
         assert suffix(got) == want, f"MINT DRIFT: got {suffix(got)!r}, want {want!r}"
