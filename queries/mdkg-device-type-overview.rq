@@ -1,0 +1,25 @@
+#+ summary: One-device-type overview for an FDA product code (example FRN, infusion pumps) - recalls by class, 510(k) clearances, registered establishments listing it, and MAUDE report and death totals. Change "FRN" to another product code.
+#+ tags:
+#+   - medical-device-kg
+
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+
+SELECT ?measure ?count WHERE {
+  { SELECT ("recalls, Class I" AS ?measure) (COUNT(DISTINCT ?r) AS ?count) WHERE {
+      ?pc ex:productCode "FRN" . ?r ex:hasProductCode ?pc ; ex:recallClassification "Class I" } }
+  UNION
+  { SELECT ("recalls, Class II" AS ?measure) (COUNT(DISTINCT ?r) AS ?count) WHERE {
+      ?pc ex:productCode "FRN" . ?r ex:hasProductCode ?pc ; ex:recallClassification "Class II" } }
+  UNION
+  { SELECT ("510(k) records" AS ?measure) (COUNT(DISTINCT ?k) AS ?count) WHERE {
+      ?k a ex:K510Record ; ex:productCode "FRN" } }
+  UNION
+  { SELECT ("registered establishments listing it" AS ?measure) (COUNT(DISTINCT ?e) AS ?count) WHERE {
+      ?pc ex:productCode "FRN" . ?e a ex:RegistrationListingRecord ; ex:hasProductCode ?pc } }
+  UNION
+  { SELECT ("MAUDE reports" AS ?measure) (MAX(?c) AS ?count) WHERE {
+      ?t a ex:TPLCRecord ; ex:productCode "FRN" ; ex:reportCount ?c } }
+  UNION
+  { SELECT ("MAUDE death reports" AS ?measure) (MAX(?c) AS ?count) WHERE {
+      ?t a ex:TPLCRecord ; ex:productCode "FRN" ; ex:deathReportCount ?c } }
+}

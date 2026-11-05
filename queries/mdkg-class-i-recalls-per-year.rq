@@ -1,0 +1,15 @@
+#+ summary: Class I medical device recalls (the most serious class) per year of recall initiation, since 2010.
+#+ tags:
+#+   - medical-device-kg
+
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+
+SELECT ?year (COUNT(DISTINCT ?r) AS ?class_I_recalls) WHERE {
+  ?r a ex:RecallRecord ;
+     ex:recallClassification "Class I" ;
+     ex:recallInitiationDate ?d .
+  BIND(YEAR(?d) AS ?year)
+  FILTER(?year >= 2010)
+}
+GROUP BY ?year
+ORDER BY ?year
