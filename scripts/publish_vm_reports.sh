@@ -16,6 +16,7 @@
 #   recalls/<date>/report.md, report.json, new_recalls.tsv, class_changes.tsv
 #   recalls/history.csv, recalls/LATEST.md       (from scripts/recall_weekly.sh)
 #   health/LATEST.txt                            (from scripts/vm_health_check.sh, Layer 2)
+#   lakefs/LATEST.md                             (from scripts/lakefs_release_watch.sh)
 #
 #   bash scripts/publish_vm_reports.sh                  # redact, guard, commit, push
 #   bash scripts/publish_vm_reports.sh --dry-run DIR    # redact + guard into DIR; no git, no push
@@ -27,6 +28,7 @@ MDKG=/srv/medical-device-kg
 KEY=$MDKG/.git-deploy-key-monitor
 MON=$MDKG/monitor/recalls
 HEALTH=$MDKG/health/latest.txt
+LAKEFS=$MDKG/monitor/lakefs/latest.md
 REPO=git@github.com:medical-device-design/medical-device-kg-pipeline.git
 BRANCH=vm-reports
 PUB=$MDKG/work/vm-reports
@@ -85,6 +87,7 @@ if [ -n "$LATEST" ]; then
   [ -f "$MON/history.csv" ] && cp "$MON/history.csv" "$STAGE/recalls/history.csv"
 fi
 [ -f "$HEALTH" ] && { mkdir -p "$STAGE/health"; cp "$HEALTH" "$STAGE/health/LATEST.txt"; }
+[ -f "$LAKEFS" ] && { mkdir -p "$STAGE/lakefs"; cp "$LAKEFS" "$STAGE/lakefs/LATEST.md"; }
 cat > "$STAGE/README.md" <<'EOF'
 # vm-reports
 
@@ -97,6 +100,7 @@ Text reports only: no data, no credentials. Every file is redacted before publis
 - `recalls/<date>/`: each week's report, `new_recalls.tsv` and `class_changes.tsv`
 - `recalls/history.csv`: one line per weekly run
 - `health/LATEST.txt`: the latest Layer 2 VM + lakeFS health report
+- `lakefs/LATEST.md`: release watch (stable branches, tags, last action runs), from `scripts/lakefs_release_watch.sh`
 
 Never merge this branch into `main`.
 EOF
