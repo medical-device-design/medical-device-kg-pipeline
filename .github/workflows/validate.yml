@@ -77,6 +77,17 @@ jobs:
       - name: Structure lint
         run: bash scripts/structure_lint.sh 2>&1 | tee _diag/structure-lint.log
 
+      # The saved queries in docs/queries are published (OKN registry, ENGG 143G course):
+      # every ex: term they use must stay declared and emitted, and each must parse.
+      - name: Saved-query contract (docs/queries)
+        run: |
+          python3 scripts/query_contract.py --selftest 2>&1 | tee _diag/query-contract.log
+          python3 scripts/query_contract.py 2>&1 | tee -a _diag/query-contract.log
+          for q in docs/queries/*.rq; do
+            qparse --query "$q" > /dev/null
+            echo "qparse OK: $q" | tee -a _diag/query-contract.log
+          done
+
       - name: Collect diagnostics
         if: always()
         run: |

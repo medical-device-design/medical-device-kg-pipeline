@@ -131,6 +131,12 @@ def _premarket(num):
     return None
 
 
+def report_label(rn, event_type=None):
+    """rdfs:label for a MAUDE report, e.g. "MAUDE 1234567-2020-00001 (Injury)".
+    scripts/patch_event_ttl.py uses the same function on an already-built file."""
+    return common.lit(f"MAUDE {rn}" + (f" ({event_type})" if event_type else ""))
+
+
 def record_blocks(r, retrieved_at=None):
     """-> (subject, pairs, text_pairs, {pc: label}) or None if the report has no usable id."""
     rn = str(r.get("report_number") or r.get("mdr_report_key") or "").strip()
@@ -143,6 +149,7 @@ def record_blocks(r, retrieved_at=None):
 
     pairs = [
         ("a", "ex:MAUDEReport"),
+        ("rdfs:label", report_label(rn, _v(r.get("event_type")))),
         ("ex:reportNumber", common.lit(rn)),
         ("ex:mdrReportKey", common.lit(r.get("mdr_report_key"))),
         ("ex:eventType", common.lit(_v(r.get("event_type")))),
@@ -170,7 +177,8 @@ def record_blocks(r, retrieved_at=None):
         pairs.append(("ex:deviceProblem", common.lit(_v(prob))))
     for pt in (r.get("patient") or []):
         for o in common.as_list(pt.get("sequence_number_outcome")):
-            pairs.append(("ex:patientOutcome", common.lit(_v(o))))
+            # older reports use FDA's one-letter codes; map them to the words newer ones use
+            pairs.append(("ex:patientOutcome", common.lit(common.outcome_label(_v(o)))))
         for pp in common.as_list(pt.get("patient_problems")):
             pairs.append(("ex:patientProblem", common.lit(_v(pp))))
         for tr in common.as_list(pt.get("sequence_number_treatment")):
@@ -182,15 +190,16 @@ def record_blocks(r, retrieved_at=None):
     hub = {}
     for dev in (r.get("device") or []):
         of = dev.get("openfda") or {}
-        pc = _v(dev.get("device_report_product_code")) or _v((common.as_list(of.get("product_code")) or [""])[0])
+        raw_pc = _v(dev.get("device_report_product_code")) or _v((common.as_list(of.get("product_code")) or [""])[0])
+        pc = common.product_code(raw_pc)
         if pc:
-            try:
-                pairs.append(("ex:hasProductCode", f"<{iri.product_code(pc)}>"))
-                pairs.append(("ex:productCode", common.lit(pc)))
-                hub.setdefault(pc.upper(), _v((common.as_list(of.get("device_name")) or [None])[0])
-                               or _v(dev.get("generic_name")))
-            except ValueError:
-                pass
+            pairs.append(("ex:hasProductCode", f"<{iri.product_code(pc)}>"))
+            pairs.append(("ex:productCode", common.lit(pc)))
+            hub.setdefault(pc, _v((common.as_list(of.get("device_name")) or [None])[0])
+                           or _v(dev.get("generic_name")))
+        elif raw_pc:
+            # reporter-typed text that is not a 3-letter FDA code: kept, but no hub node
+            pairs.append(("ex:reportedProductCodeText", common.lit(raw_pc)))
         pairs += [
             ("ex:deviceName", common.lit(_v(dev.get("brand_name")))),
             ("ex:genericName", common.lit(_v(dev.get("generic_name")))),
@@ -304,7 +313,7 @@ def transform(src, out, retrieved_at=None, workers=None):
     with base.TurtleWriter(hub_file) as w:
         for pc in sorted(hub):
             w.block(iri.product_code(pc), [("a", "ex:ProductCode"),
-                                           ("rdfs:label", common.lit(hub[pc])),
+                                           ("skos:altLabel", common.lit(hub[pc])),   # rdfs:label from classification
                                            ("ex:productCode", common.lit(pc))])
     st.triples += w.triples
     _concat([r[0] for r in results] + [str(hub_file)], out)
@@ -346,7 +355,8 @@ def _selftest():
                                  "pma_number": ["P900001"]}}]},
         {"report_number": "1234567-2020-00002", "event_type": "Malfunction",
          "date_received": "20200311", "date_of_event": "20201399",            # not a real date
-         "device": [{"device_report_product_code": "FRN"}]},
+         "patient": [{"sequence_number_outcome": ["R"]}],                      # one-letter code
+         "device": [{"device_report_product_code": "FRN"}, {"device_report_product_code": "269"}]},
         {"event_type": "Malfunction"},   # no report id -> skipped
     ]}
     for workers in (1, 2):
@@ -387,6 +397,10 @@ def _selftest():
             'CONTACT [NAME REMOVED] AT [PHONE REMOVED]."') in narr                # narratives scrubbed
     assert "3/4/1950" not in narr and "JANE DOE" not in narr
     assert "ex:sourceDataset \"device/event\"" in text
+    assert 'rdfs:label "MAUDE 1234567-2020-00001 (Injury)"' in text           # reports labelled
+    assert 'ex:patientOutcome "Required Intervention"' in text and 'ex:patientOutcome "R"' not in text
+    assert "product-code/269" not in text and 'ex:reportedProductCodeText "269"' in text
+    assert 'skos:altLabel "Defibrillator"' in text and 'rdfs:label "Defibrillator"' not in text
     a = local_name("https://download.open.fda.gov/device/event/2024q1/device-event-0001-of-0009.json.zip")
     b = local_name("https://download.open.fda.gov/device/event/2023q4/device-event-0001-of-0009.json.zip")
     assert a == "2024q1__device-event-0001-of-0009.json.zip" and a != b      # quarters never collide

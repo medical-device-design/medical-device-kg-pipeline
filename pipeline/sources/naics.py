@@ -148,6 +148,7 @@ def transform(src, out, retrieved_at=None, downloads=None):
             used[code] += 1
             m = iri.naics_mapping(pc)
             w.block(m, [("a", "ex:ProductCodeNAICSMapping"),
+                        ("rdfs:label", common.lit(f"{pc} -> NAICS {code} (inferred)")),
                         ("ex:mappingSubject", f"<{iri.product_code(pc)}>"),
                         ("ex:assignedNAICS", f"<{iri.naics(code)}>"),
                         ("ex:mappingMethod", common.lit(method)),

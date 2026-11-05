@@ -131,3 +131,7 @@ The published TTLs live in **lakeFS** (`repository.okn.us`), with full version h
 and tags `v0.0.1`–`v0.0.4`. That — not any VM, not any laptop — is the source of truth.
 If this VM died tomorrow, nothing published would be lost. Keep it that way: the moment
 work matters, it belongs in git (code) or lakeFS (data), not only on the VM.
+
+## Shared VM
+
+Shared VM. A second project, the FDA regulated-products KGs, lives in `/srv/fda-products-kg` (code: github medical-device-design/FDA-kg). Before a heavy job, run `/srv/fda-products-kg/tools/bin/vm-status` to see both projects' jobs, RAM and disk. Keep any JVM at or below 8 GB and do not start a second big JVM while the other project's is running. Leave 100 GB free on the volume. Use your own `work/`, never `/tmp` for large files, never the other tree.

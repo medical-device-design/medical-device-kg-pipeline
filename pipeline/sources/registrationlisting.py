@@ -72,10 +72,12 @@ def transform(src, out, retrieved_at=None):
             addr = reg if (reg.get("address_line_1") or reg.get("city")) else (reg.get("contact_address") or {})
             owner = reg.get("owner_operator") or {}
             fei = str(reg.get("fei_number") or "").strip()
-            street = ", ".join(x for x in (addr.get("address_line_1"), addr.get("address_line_2")) if x)
+            street = common.norm_address(addr.get("address_line_1"), addr.get("address_line_2"))
 
             pairs = [
                 ("a", "ex:RegistrationListingRecord"),
+                # the establishment name is its label (also shown for its geocoded point)
+                ("rdfs:label", common.lit(common.norm_text(reg.get("name")))),
                 ("ex:registrationNumber", common.lit(reg.get("registration_number"))),
                 ("ex:feiNumber", common.lit(fei) if fei else None),
                 ("ex:name", common.lit(reg.get("name"))),
@@ -110,7 +112,7 @@ def transform(src, out, retrieved_at=None):
                 manufacturers.setdefault(fei, owner.get("firm_name") or reg.get("name"))
 
             for prod in (r.get("products") or []):
-                pc = str(prod.get("product_code") or "").strip()
+                pc = common.product_code(prod.get("product_code"))
                 if not pc:
                     continue
                 pairs.append(("ex:hasProductCode", f"<{iri.product_code(pc)}>"))
@@ -144,7 +146,7 @@ def transform(src, out, retrieved_at=None):
         for pc in sorted(hub):
             w.block(iri.product_code(pc), [
                 ("a", "ex:ProductCode"),
-                ("rdfs:label", common.lit(hub[pc])),
+                ("skos:altLabel", common.lit(hub[pc])),      # rdfs:label comes from classification
                 ("ex:productCode", common.lit(pc)),
             ])
 
@@ -209,6 +211,8 @@ def _selftest():
     assert 'rdfs:label "Acme Holdings"' in text
     assert f"<{iri.product_code('FRN')}>" in text and f"<{iri.product_code('OYC')}>" in text
     assert 'ex:establishmentType "Manufacture Medical Device"' in text
+    assert 'rdfs:label "Flat Layout Co"' in text and text.count('rdfs:label "Flat Layout Co"') == 1
+    assert 'skos:altLabel "Pump, Infusion"' in text
     assert "ex:sourceDataset \"device/registrationlisting\"" in text
     print(f"registrationlisting.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
