@@ -222,10 +222,19 @@ def recall_event(event_number):
     return _instance("recall-event", slug(event_number))
 
 
-def report(key):
-    """A MAUDE adverse-event report (opaque report id, kept verbatim).
-        report('MW5012345') -> .../id/report/MW5012345"""
-    return _instance("report", _verbatim(key))
+def report(mdr_report_key):
+    """A MAUDE adverse-event report, keyed on FDA's MDR_REPORT_KEY (one per MDR record).
+        report('9988776') -> .../id/report/9988776
+
+    v0.0.7: the key is the MDR report key, NOT the report number. FDA gives one report
+    number to several MDR records (2026-11-04 snapshot: 26,557,759 report keys on
+    25,810,958 report numbers), so report-number IRIs merged distinct records into one
+    node. The report number stays a literal (ex:reportNumber) on the report. Every
+    place that links to a MAUDE report (event.ttl and its narrative file) mints the
+    IRI through this function."""
+    if mdr_report_key is None or not str(mdr_report_key).strip():
+        raise ValueError("report() needs FDA's MDR report key")
+    return _instance("report", _verbatim(mdr_report_key))
 
 
 def postmarket_522(order_number):
@@ -599,10 +608,25 @@ def fda_compliance_action(action_type, case_id, fei=None):
                      slug(fei) if fei else "no-fei")
 
 
+_SHIPMENT_ID = re.compile(r"^[A-Z0-9]{3}-[0-9]{7}-[0-9]/[0-9]+/[0-9]+[A-Z]?$")
+
+
 def import_refusal(shipment_id):
     """An import refusal (Data Dashboard shipment ID: entry/line/sub-line).
-        import_refusal('UPS-0443680-5/1/1') -> .../id/import-refusal/ups_0443680_5_1_1"""
-    return _instance("import-refusal", slug(shipment_id))
+        import_refusal('UPS-0443680-5/1/1')    -> .../id/import-refusal/ups_0443680_5_1_1
+        import_refusal('GJ8-0223708-2/12/1]')  -> .../id/import-refusal/gj8_0223708_2_12_1_x<8 hex>
+
+    IDs in FDA's usual layout (upper case, separators at fixed places, optional sub-line
+    letter) are slugged as before; the slug is one-to-one on that layout. Any other ID
+    (stray trailing characters such as ] ^ [ \\, lower case, other separators) gets the
+    first 8 hex digits of the SHA-1 of the exact ID appended, so IDs that differ only in
+    characters the slug drops stay distinct nodes (v0.0.7 fix: four records whose IDs
+    differed only in a trailing ] ^ [ \\ had been merged into one node)."""
+    s = str(shipment_id if shipment_id is not None else "").strip()
+    if _SHIPMENT_ID.match(s):
+        return _instance("import-refusal", slug(s))
+    import hashlib
+    return _instance("import-refusal", f"{slug(s)}_x{hashlib.sha1(s.encode('utf-8')).hexdigest()[:8]}")
 
 
 def import_refusal_charge(charge_id):
@@ -654,7 +678,7 @@ def _selftest():
         recall("94520"):                     "recall/94520",
         recall_event("98639"):               "recall-event/98639",
         firm_name("MEDTRONIC MINIMED"):      "firm-name/medtronic_minimed",
-        report("MW5012345"):                 "report/MW5012345",
+        report("9988776"):                   "report/9988776",
         postmarket_522("PS120001"):          "postmarket-522/ps120001",
         manufacturer(fei="3001234567"):      "manufacturer/3001234567",
         manufacturer(name="0625 LLC"):       "manufacturer/0625_llc",
@@ -737,6 +761,27 @@ def _selftest():
 
     # determinism: same input -> same IRI, always
     assert product_code("BRT") == product_code("brt") == product_code(" BRT ")
+
+    # MAUDE reports: one node per MDR report key; a report number is not a key
+    assert report("50835592") != report("50839657")
+    for bad in ("", None, "3003442380-2026-010367 X"):
+        try:
+            report(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"report({bad!r}) should have raised")
+
+    # import refusals: IDs that differ only in characters the slug drops stay distinct
+    variants = ["GJ8-0223708-2/12/1", "GJ8-0223708-2/12/1]", "GJ8-0223708-2/12/1^",
+                "GJ8-0223708-2/12/1[", "GJ8-0223708-2/12/1\\", "gj8-0223708-2/12/1"]
+    minted = [import_refusal(v) for v in variants]
+    assert len(set(minted)) == len(variants), minted
+    assert suffix(minted[0]) == "import-refusal/gj8_0223708_2_12_1"
+    assert all(suffix(m).startswith("import-refusal/gj8_0223708_2_12_1_x") and len(suffix(m)) ==
+               len("import-refusal/gj8_0223708_2_12_1_x") + 8 for m in minted[1:])
+    assert import_refusal("112-9802515-1/4/21A") == f"{ID}import-refusal/112_9802515_1_4_21a"
+    assert import_refusal("GJ8-0223708-2/12/1]") == import_refusal(" GJ8-0223708-2/12/1] ")
 
     # empties are refused, not silently turned into orphan 'unknown' nodes
     for bad in ("", "   ", None, "!!!"):

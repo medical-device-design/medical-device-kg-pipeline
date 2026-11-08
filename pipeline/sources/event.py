@@ -2,11 +2,22 @@
 """
 event.py -- MAUDE adverse-event reports (openFDA device/event) -> RDF, on the contract.
 
-Each report -> ex:MAUDEReport with typed dates, event type, report flags, device
+Each MDR record -> one ex:MAUDEReport with typed dates, event type, report flags, device
 problems, patient problems/outcomes/treatments, the device as reported (brand,
 generic name, model, catalog, lot, UDI-DI, manufacturer, operator) and links to the
 ProductCode hub plus any 510(k)/PMA named in the report or its openfda block.
 Acquisition is BULK -- the old paging import capped MAUDE at 0.06% coverage (D9).
+
+REPORT IRIs (v0.0.7, 2026-11-08): minted from FDA's MDR_REPORT_KEY (iri.report), one node per
+MDR record. FDA gives one report number to several MDR records (2026-11-04 snapshot: 26,557,759
+report keys on 25,810,958 report numbers), so the earlier report-number IRIs merged distinct
+records. The report number is kept as the literal ex:reportNumber (and in the rdfs:label); the key
+is ex:mdrReportKey and ex:sourceRecordId. The narrative file uses the same key-based IRIs, because
+each record's mdr_text is written under the subject of that same record.
+
+E-MAIL ADDRESSES (2026-11-08): every MAUDE text value (manufacturer, brand, generic name, model,
+catalog, lot, removal/correction number, ...) passes through scrub.scrub_email, not only the
+narratives (which pass through scrub.scrub_text, which starts with the same e-mail step).
 
 TWO OUTPUT FILES (2026-10-09)
   <out>            structured facts (event.ttl)
@@ -94,8 +105,11 @@ def _iter_records(src):
 #  Record -> triples
 # ===========================================================================
 def _v(value):
-    """A meaningful string value, or None for blanks and FDA no-information fillers."""
+    """A meaningful string value, or None for blanks and FDA no-information fillers.
+    E-mail addresses are replaced by [EMAIL REMOVED] (scrub.scrub_email)."""
     s = " ".join(str(value or "").split())
+    if "@" in s:
+        s = scrub.scrub_email(s)[0]
     return None if s.upper() in _NULLS else s
 
 
@@ -138,20 +152,21 @@ def report_label(rn, event_type=None):
 
 
 def record_blocks(r, retrieved_at=None):
-    """-> (subject, pairs, text_pairs, {pc: label}) or None if the report has no usable id."""
-    rn = str(r.get("report_number") or r.get("mdr_report_key") or "").strip()
-    if not rn:
+    """-> (subject, pairs, text_pairs, {pc: label}) or None if the record has no usable MDR report key."""
+    key = str(r.get("mdr_report_key") or "").strip()
+    if not key:
         return None
     try:
-        subject = iri.report(rn)
+        subject = iri.report(key)                 # one node per MDR record (not per report number)
     except ValueError:
         return None
+    rn = str(r.get("report_number") or "").strip()
 
     pairs = [
         ("a", "ex:MAUDEReport"),
-        ("rdfs:label", report_label(rn, _v(r.get("event_type")))),
+        ("rdfs:label", report_label(rn or f"MDR key {key}", _v(r.get("event_type")))),
         ("ex:reportNumber", common.lit(rn)),
-        ("ex:mdrReportKey", common.lit(r.get("mdr_report_key"))),
+        ("ex:mdrReportKey", common.lit(key)),
         ("ex:eventType", common.lit(_v(r.get("event_type")))),
         ("ex:adverseEventFlag", _flag(r.get("adverse_event_flag"))),
         ("ex:productProblemFlag", _flag(r.get("product_problem_flag"))),
@@ -220,7 +235,7 @@ def record_blocks(r, retrieved_at=None):
         for pn in common.as_list(of.get("pma_number")):
             pairs.append(("ex:relatedPMARecord", f"<{iri.pma(pn)}>"))
 
-    pairs += common.provenance(DATASET, rn, source_url=SOURCE_URL, retrieved_at=retrieved_at)
+    pairs += common.provenance(DATASET, key, source_url=SOURCE_URL, retrieved_at=retrieved_at)
     # de-duplicate identical pairs (multi-device reports repeat values), keep order
     seen, uniq = set(), []
     for p in pairs:
@@ -353,11 +368,17 @@ def _selftest():
                      "device_operator": "HEALTH PROFESSIONAL",
                      "openfda": {"device_name": ["Defibrillator"], "k_number": ["K123456"],
                                  "pma_number": ["P900001"]}}]},
-        {"report_number": "1234567-2020-00002", "event_type": "Malfunction",
+        {"report_number": "1234567-2020-00002", "mdr_report_key": "9988777", "event_type": "Malfunction",
          "date_received": "20200311", "date_of_event": "20201399",            # not a real date
          "patient": [{"sequence_number_outcome": ["R"]}],                      # one-letter code
          "device": [{"device_report_product_code": "FRN"}, {"device_report_product_code": "269"}]},
         {"event_type": "Malfunction"},   # no report id -> skipped
+        # FDA reuses a report number for several MDR records: two records, two nodes (keys differ)
+        {"report_number": "1234567-2020-00002", "mdr_report_key": "9988778", "event_type": "Injury",
+         "date_received": "20200312", "manufacturer_name": "BETA CORP CONTACT@BETA-MED.COM",
+         "device": [{"device_report_product_code": "FRN", "catalog_number": "REF 12 qa.team@beta-med.com"}],
+         "mdr_text": [{"text_type_code": "Description of Event or Problem", "text": "Second record."}]},
+        {"report_number": "1234567-2020-00009", "event_type": "Injury"},   # no MDR report key -> skipped
     ]}
     for workers in (1, 2):
         with tempfile.TemporaryDirectory() as d:
@@ -377,8 +398,16 @@ def _selftest():
                 assert (text, narr) == first, "parallel output differs from serial"
             assert not (d / "event.parts").exists()
 
-    assert st.records == 2 and st.skipped == 1, (st.records, st.skipped)
-    assert f"<{iri.report('1234567-2020-00001')}>" in text and "ex:MAUDEReport" in text
+    assert st.records == 3 and st.skipped == 2, (st.records, st.skipped)
+    assert f"<{iri.report('9988776')}>" in text and "ex:MAUDEReport" in text
+    assert "/report/1234567-2020" not in text and "/report/1234567-2020" not in narr     # report numbers are not keys
+    assert text.count(f"<{iri.report('9988777')}>\n") == 1 and text.count(f"<{iri.report('9988778')}>\n") == 1
+    assert text.count('ex:reportNumber "1234567-2020-00002"') == 2                      # number kept on both records
+    assert 'ex:mdrReportKey "9988778"' in text and 'ex:sourceRecordId "9988778"' in text
+    assert f"<{iri.report('9988778')}>\n    ex:eventDescription \"Second record.\"" in narr   # narrative on its own record
+    assert f"<{iri.report('9988776')}>\n    ex:eventDescription" in narr
+    assert not scrub.EMAIL_CHECK.search(text) and 'ex:manufacturerName "BETA CORP [EMAIL REMOVED]"' in text   # short fields scrubbed
+    assert 'ex:catalogNumber "REF 12 [EMAIL REMOVED]"' in text
     assert 'ex:eventType "Injury"' in text and '"2020-03-10"^^xsd:date' in text
     assert 'ex:adverseEventFlag "true"^^xsd:boolean' in text and 'ex:productProblemFlag "false"^^xsd:boolean' in text
     assert 'ex:deviceProblem "Battery Problem"' in text and 'ex:patientOutcome "Hospitalization"' in text

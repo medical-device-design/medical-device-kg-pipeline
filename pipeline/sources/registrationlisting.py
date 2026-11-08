@@ -125,9 +125,15 @@ def transform(src, out, retrieved_at=None):
 
             # openFDA has one record per LISTING (~13 per establishment); merge them so
             # each establishment is written once with the union of its listings.
+            # One rdfs:label per establishment: the first listing's name. When FDA's listings
+            # carry more than one establishment name (2026-11-04: registration 3008849319 is
+            # "Canady Biotechnology LLC" on some listings, "US MEDICAL INNOVATIONS, LLC" on
+            # others), every name is still kept as ex:name.
             acc = establishments.setdefault(regno, ({}, []))
             for p in pairs:
                 if p[1] is not None and p not in acc[0]:
+                    if p[0] == "rdfs:label" and any(q[0] == "rdfs:label" for q in acc[1]):
+                        continue
                     acc[0][p] = True
                     acc[1].append(p)
             listings += 1
@@ -188,6 +194,10 @@ def _selftest():
                           "name": "Flat Layout Co", "address_line_1": "125 W 1000 S", "address_line_2": "Suite 2",
                           "city": "Smithfield", "state_code": "UT", "zip_code": "84335", "iso_country_code": "US"},
          "proprietary_name": ["SecondPump"], "products": [{"product_code": "MEA"}]},
+        # a third listing under another establishment name (FDA does this): one label, both names kept
+        {"registration": {"registration_number": "1000517406", "fei_number": "1000517406",
+                          "name": "FLAT LAYOUT HOLDINGS, LLC", "city": "Smithfield", "state_code": "UT"},
+         "products": [{"product_code": "MEA"}]},
     ]}
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "sample.json").write_text(json.dumps(sample), encoding="utf-8")
@@ -212,6 +222,8 @@ def _selftest():
     assert f"<{iri.product_code('FRN')}>" in text and f"<{iri.product_code('OYC')}>" in text
     assert 'ex:establishmentType "Manufacture Medical Device"' in text
     assert 'rdfs:label "Flat Layout Co"' in text and text.count('rdfs:label "Flat Layout Co"') == 1
+    est = text.split(f"<{iri.establishment('1000517406')}>\n", 1)[1].split("\n\n", 1)[0]
+    assert est.count("rdfs:label") == 1 and 'ex:name "FLAT LAYOUT HOLDINGS, LLC"' in est and 'ex:name "Flat Layout Co"' in est
     assert 'skos:altLabel "Pump, Infusion"' in text
     assert "ex:sourceDataset \"device/registrationlisting\"" in text
     print(f"registrationlisting.py self-test PASSED ({st.records} records, {st.triples} triples).")
