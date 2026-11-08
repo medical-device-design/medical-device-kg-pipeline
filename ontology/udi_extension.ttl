@@ -104,14 +104,14 @@ ex:deviceCountInBasePackage a rdf:Property ; rdfs:range xsd:integer .
 # IDENTIFIER AND LABELER FIELDS
 # =========================
 
-ex:publicDeviceRecordKey a rdf:Property ; rdfs:label "public device record key (UUID)" .
-ex:identifierId a rdf:Property ; rdfs:label "UDI identifier value" .
+ex:publicDeviceRecordKey a rdf:Property .      # rdfs:label in ontology.ttl (one label per term)
+ex:identifierId a rdf:Property .               # rdfs:label in ontology.ttl (one label per term)
 ex:identifierType a rdf:Property ; rdfs:label "identifier type (Primary / Package / Unit of Use)" .
-ex:issuingAgency a rdf:Property ; rdfs:label "issuing agency (GS1 / HIBCC / ICCBBA)" .
+ex:issuingAgency a rdf:Property .              # rdfs:label in ontology.ttl (one label per term)
 ex:packageType a rdf:Property ; rdfs:label "package type" .
 ex:quantityPerUnitOfUse a rdf:Property ; rdfs:range xsd:integer .
 ex:unitOfUseId a rdf:Property ; rdfs:label "unit-of-use identifier" .
-ex:dunsNumber a rdf:Property ; rdfs:label "D-U-N-S number" .
+ex:dunsNumber a rdf:Property .                 # rdfs:label "labeler DUNS number" in ontology.ttl (one label per term)
 
 ex:gmdnTermCode a rdf:Property ; rdfs:label "GMDN term code" .
 ex:gmdnTermName a rdf:Property ; rdfs:label "GMDN term name" .
@@ -119,7 +119,7 @@ ex:gmdnTermDefinition a rdf:Property ; rdfs:label "GMDN term definition" .
 ex:gmdnImplantable a rdf:Property ; rdfs:range xsd:boolean .
 ex:gmdnCodeStatus a rdf:Property ; rdfs:label "GMDN code status (Active / Obsolete)" .
 
-ex:recordStatus a rdf:Property ; rdfs:label "GUDID record status" .
+ex:recordStatus a rdf:Property .              # rdfs:label "record status" in ontology.ttl (one label per term)
 ex:publicVersionDate a rdf:Property ; rdfs:range xsd:date .
 
 ex:storageType a rdf:Property ; rdfs:label "storage condition type" .

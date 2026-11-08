@@ -188,7 +188,7 @@ ex:RecallRecord a owl:Class ;
 ex:MAUDEReport a owl:Class ;
     rdfs:subClassOf ex:AdverseEventReport ;
     rdfs:label "MAUDE Adverse Event Report" ;
-    rdfs:comment "Legacy graph: a 15,284-report sample. Rebuild (event.py): every report in openFDA device/event (26.1 M on 2026-10-10). Narratives are in event_text.ttl. For counts per product code, use the TPLC aggregates." .
+    rdfs:comment "One node per MDR record. The IRI is minted from FDA's MDR report key (ex:mdrReportKey, unique per record; v0.0.7 change, see CHANGES_v0.0.7.md); FDA reuses one report number for several MDR records, so the report number is a literal (ex:reportNumber), not the key. Rebuild (event.py): every record in openFDA device/event (26,557,759 on the 2026-11-04 snapshot). Narratives (scrubbed) are in event_text_scrubbed.ttl on the same IRIs. For counts per product code, use the TPLC aggregates; counting distinct ex:reportNumber values gives report numbers, not records." .
 
 ex:Postmarket522Study a owl:Class ;
     rdfs:subClassOf ex:PostmarketRecord ;
@@ -572,8 +572,10 @@ ex:codeInfoTruncated    a owl:DatatypeProperty ; rdfs:range xsd:boolean ;
 ex:codeInfoLength       a owl:DatatypeProperty ; rdfs:range xsd:integer ; rdfs:label "original length of the code information, in characters" .
 ex:voluntaryMandated    a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "voluntary or FDA-mandated" .
 ex:initialFirmNotification a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "how the firm first notified customers" .
-ex:mdrReportKey         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "MDR report key" .
-ex:reportNumber         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "MDR report number" .
+ex:mdrReportKey         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "MDR report key" ;
+    rdfs:comment "FDA's MDR_REPORT_KEY, unique per MDR record. MAUDE report IRIs (id/report/<key>) are minted from it." .
+ex:reportNumber         a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "MDR report number" ;
+    rdfs:comment "The MDR report number as FDA publishes it. Not unique: FDA gives one report number to several MDR records, so several ex:MAUDEReport nodes can share it." .
 ex:reportSourceCode     a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "report source code" .
 ex:sourceType           a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "MDR source type" .
 ex:eventType            a owl:DatatypeProperty ; rdfs:range xsd:string ; rdfs:label "adverse event type (death/injury/malfunction)" .
