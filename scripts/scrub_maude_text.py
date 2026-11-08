@@ -6,13 +6,16 @@ scrub_maude_text.py -- scrubbed MAUDE narrative file for a release, plus indepen
     python3 scripts/scrub_maude_text.py sample IN.ttl OUT.ttl [--dict /usr/share/dict/american-english]
     python3 scripts/scrub_maude_text.py leakcheck FILE.ttl [--examples 5] [--counts-only] [--workers N]
     python3 scripts/scrub_maude_text.py triage FILE.ttl [--workers N] [--max-lines 2000]
+    python3 scripts/scrub_maude_text.py emailcheck FILE.ttl [FILE.ttl ...] [--examples 5] [--workers N]
 
 IN is an event_text.ttl written by an older event.py (narratives not yet scrubbed). It is
 streamed line by line; every narrative literal (ex:eventDescription, ex:manufacturerNarrative,
 ex:mdrText, and ex:closeoutText / ex:manufacturerResponse of legacy_mdr_text.ttl and
 medsun_text.ttl) is unescaped, passed through scrub.scrub_text, and re-escaped with common.lit.
-Every other line (subject IRIs, prefixes, blank lines) is copied unchanged, so the output
-attaches the narratives to the same report IRIs, with the same predicates and block pattern.
+Every other literal line goes through scrub.scrub_email only (2026-11-08: e-mail addresses are
+removed from all MAUDE text literals, not only the narratives); every other line (subject IRIs,
+prefixes, blank lines) is copied unchanged, so the output attaches the narratives to the same
+report IRIs, with the same predicates and block pattern.
 No text is capped or truncated. OUT is written as OUT.part and renamed when complete. With
 --workers N the input is split at report-block boundaries, the ranges are scrubbed in
 parallel, and the parts are appended to OUT.part in order (each part removed once appended).
@@ -22,7 +25,9 @@ formats, SSN, DOB / date of birth followed by a date, and Dr./Mr./Mrs./Ms. follo
 capitalized word. It prints counts per category and at most --examples examples. Examples
 are structure only: the match is masked (letters -> x, digits -> #) and of the neighboring
 words only common words (scrub._STOP_CORE and label words such as LOT / MODEL / PHONE) are
-shown; every other word is reduced to its shape (Xxxx, ###). Use --counts-only on unscrubbed
+shown; every other word is reduced to its shape (Xxxx, ###). "emailcheck" counts e-mail addresses
+(scrub.EMAIL_CHECK, the battery F7 pattern, and scrub.EMAIL_ANY) in EVERY literal of any Turtle
+file, per predicate, and exits 1 if one is found. Use --counts-only on unscrubbed
 input. "triage" lists every match in a category that is not judged benign, with the same
 structure-only context and with features computed from the real text (for example, why
 the scrub rules did not take a title + word); the real text is never printed.
@@ -46,6 +51,8 @@ NARR_PRED = re.compile(r"^\s+ex:" + _PREDS + r"\b")
 _UNESC = re.compile(r'\\(["\\nrt])')
 _MAP = {'"': '"', "\\": "\\", "n": "\n", "r": "\r", "t": "\t"}
 _ODD_ESC = re.compile(r'\\[^"\\nrt]')
+ANY_LIT_LINE = re.compile(r'^(\s+\S+\s+)"(.*)"((?:\^\^\S+|@[A-Za-z-]+)?\s*[;.]\s*)$', re.S)
+_LIT = re.compile(r'"((?:[^"\\]|\\.)*)"')
 DICT = "/usr/share/dict/american-english"
 
 
@@ -153,6 +160,14 @@ def _scrub_range(args):
                     n["narrative_lines_unparsed"] += 1         # must stay 0 (checked below)
                 elif ln.startswith("<"):
                     n["subjects"] += 1
+                elif "@" in ln and not ln.startswith("@"):
+                    lm = ANY_LIT_LINE.match(ln.rstrip("\n"))
+                    if lm:
+                        clean, k = scrub.scrub_email(unescape(lm.group(2)))
+                        if k:
+                            n["other_literals_changed"] += 1
+                            hits["email_other_literal"] += k
+                            ln = f"{lm.group(1)}{common.lit(clean)}{lm.group(3)}\n"
                 fo.write(ln)
             else:
                 n["narratives"] += 1
@@ -438,6 +453,46 @@ def triage(path, workers=1, dict_path=DICT, max_lines=2000):
 _MARK = re.compile(r"\[(?:NAME|ADDRESS|INITIALS) REMOVED\]|\[AGE OVER 89\]")
 
 
+def _email_range(args):
+    path, start, end, examples, wid = args
+    counts, ex, lines = collections.Counter(), [], 0
+    for _, raw_ln in _lines(path, start, end):
+        if b"@" not in raw_ln or raw_ln.startswith(b"@"):
+            continue
+        ln = raw_ln.decode("utf-8")
+        pred = (ln.split() or ["?"])[0] if ln[:1].isspace() else "(subject line)"
+        for lm in _LIT.finditer(ln):
+            text = unescape(lm.group(1))
+            for name, rx in (("check", scrub.EMAIL_CHECK), ("any", scrub.EMAIL_ANY)):
+                for m in rx.finditer(text):
+                    counts[(name, pred)] += 1
+                    if name == "check" and len(ex) < examples:
+                        ex.append(f"{pred}: " + masked_context(text, m.start(), m.end()))
+        lines += 1
+    return counts, ex
+
+
+def emailcheck(paths, examples=5, workers=1):
+    """E-mail addresses in every literal of every file (structure-only examples). -> total found."""
+    t0, total = time.time(), 0
+    for path in paths:
+        cuts = _boundaries(path, max(1, workers))
+        res = _pmap(_email_range, [(path, a, b, examples, i) for i, (a, b) in enumerate(zip(cuts, cuts[1:]))])
+        c, ex = collections.Counter(), []
+        for a, b in res:
+            c.update(a)
+            ex += b
+        n_check = sum(v for (k, _), v in c.items() if k == "check")
+        n_any = sum(v for (k, _), v in c.items() if k == "any")
+        total += n_check + n_any
+        log(f"emailcheck {path}: {n_check} (check pattern), {n_any} (EMAIL_ANY); by predicate: "
+            + (", ".join(f"{k}:{p} {v}" for (k, p), v in sorted(c.items())) or "none"))
+        for e in ex[:examples]:
+            log("  example (structure only): " + e)
+    log(f"emailcheck: {total} e-mail matches in {len(paths)} files ({(time.time() - t0) / 60:.1f} min)")
+    return total
+
+
 def sample(src, dst, dict_path=None):
     """Scrub a sample and report what the name / address / initials / age rules removed: removed
     words that are lowercase dictionary words (possible over-removal) are listed; everything else is
@@ -497,5 +552,7 @@ if __name__ == "__main__":
         leakcheck(a[1], int(opts.get("--examples", 5)), counts_only, dct, nw)
     elif a[0] == "triage":
         triage(a[1], nw, dct, int(opts.get("--max-lines", 2000)))
+    elif a[0] == "emailcheck":
+        sys.exit(1 if emailcheck(a[1:], int(opts.get("--examples", 5)), nw) else 0)
     else:
         raise SystemExit(__doc__)

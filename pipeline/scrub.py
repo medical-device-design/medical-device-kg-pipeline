@@ -64,6 +64,11 @@ dates after DOB wording, unlabelled phone- and SSN-shaped numbers, and names aft
                   Also: a dotted title before a digit-preceded MR ("3 MR. X")
                   is no longer skipped, and English words built from a prefix
                   and a stop word (REINSERTED, UNHOOKED) are not names.
+Added 2026-11-08:
+  email (all MAUDE text)  scrub_email(): any address (superset of the  -> [EMAIL REMOVED]
+                  rule above and of the release check's pattern), for
+                  every MAUDE text literal (event.py structured fields
+                  too, not only the narratives); scrub_text() starts with it
 Returns (clean_text, Counter of rule hits).
 """
 import collections
@@ -393,6 +398,10 @@ def scrub_text(text):
     hits = collections.Counter()
     if not text:
         return text, hits
+    if "@" in text:                               # e-mail first, so the whole address goes (see scrub_email)
+        text, k = scrub_email(text)
+        if k:
+            hits["email"] += k
     u = text.upper()
     for name, rx, repl in RULES:
         gate = _GATE.get(name)
@@ -414,6 +423,26 @@ def scrub_text(text):
         text = _DOB_LIST.sub(lambda m: (hits.update(["dob"]), "[DOB REMOVED]")[1], text)
     text = _number_shapes(text, hits)
     return text, hits
+
+
+# ---- added 2026-11-08: e-mail addresses in EVERY MAUDE text literal --------------------------------
+# The v0.0.7 check found 74 e-mail addresses in short structured MAUDE fields (manufacturer name,
+# catalog / model number, generic name, device name, removal/correction number), which the narrative
+# scrub never saw. event.py now passes every MAUDE text value through scrub_email(), and scrub_text()
+# starts with it. EMAIL_ANY is a superset of both the narrative e-mail rule in RULES (Unicode word
+# characters) and the release check's ASCII pattern EMAIL_CHECK (scripts/scrub_maude_text.py
+# LEAKS["email"], the same as battery F7), so anything the check would count is removed, and the whole
+# address goes ("J.DOE%QA@..." -> one marker). "5V@0.5MS" (a pacing threshold) is not an address.
+EMAIL_CHECK = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+EMAIL_ANY = re.compile(r"[\w.%+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}")
+
+
+def scrub_email(text):
+    """-> (text with every e-mail address replaced by [EMAIL REMOVED], number of addresses removed)."""
+    if not text or "@" not in text:
+        return text, 0
+    text, n = EMAIL_ANY.subn("[EMAIL REMOVED]", text)
+    return text, n
 
 
 def _selftest():
@@ -530,7 +559,20 @@ def _selftest():
     for s in keep:
         got, hits = scrub_text(s)
         assert got == s, f"over-scrubbed: {s!r} -> {got!r} {dict(hits)}"
-    print(f"scrub.py self-test PASSED ({len(cases)} removals, {len(keep)} keeps).")
+    # e-mail addresses in short structured fields (added 2026-11-08; all examples synthetic)
+    emails = [
+        ("ACME MEDICAL INFO@ACME-MED.COM", "ACME MEDICAL [EMAIL REMOVED]"),
+        ("CAT.NO. X1 / J.DOE%QA@MAIL.EXAMPLE.CO.UK", "CAT.NO. X1 / [EMAIL REMOVED]"),
+        ("müller@example.de", "[EMAIL REMOVED]"),
+        ("RC-123 qa@example.org; ops@example.org", "RC-123 [EMAIL REMOVED]; [EMAIL REMOVED]"),
+    ]
+    for raw, want in emails:
+        got, k = scrub_email(raw)
+        assert got == want and k >= 1, (raw, got)
+        assert not EMAIL_CHECK.search(got)
+    for s in ("5V@0.5MS", "MODEL A@1", "LOT 12@34.5", "NO ADDRESS HERE", "", None):
+        assert scrub_email(s) == (s, 0), s
+    print(f"scrub.py self-test PASSED ({len(cases)} removals, {len(keep)} keeps, {len(emails)} e-mail cases).")
 
 
 if __name__ == "__main__":
