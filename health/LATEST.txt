@@ -1,6 +1,6 @@
 ############################################################
 # medical-device-kg VM health  --  Layer 2
-# host: build-vm   user: <user>   date_utc: 2026-11-02T11:30:01Z
+# host: build-vm   user: <user>   date_utc: 2026-11-09T11:30:01Z
 # MDKG: /srv/medical-device-kg
 ############################################################
 
@@ -14,17 +14,17 @@
 
 == 2. disk ==
 Filesystem      Size  Used Avail Use% Mounted on
-/dev/sda3      1008G  632G  335G  66% /
-   PASS disk 66% used on /srv/medical-device-kg
+/dev/sda3      1008G  690G  277G  72% /
+   PASS disk 72% used on /srv/medical-device-kg
    tree sizes:
-     4.2M	/srv/medical-device-kg/repo
-     1.6G	/srv/medical-device-kg/downloads
+     4.4M	/srv/medical-device-kg/repo
+     3.6G	/srv/medical-device-kg/downloads
      2.2G	/srv/medical-device-kg/out
      40M	/srv/medical-device-kg/nstest
 
 == 3. repo (git) ==
    PASS repo at /srv/medical-device-kg/repo  branch=main  head=14ab1c1
-   WARN behind origin by 46 commit(s) -- run: git -C /srv/medical-device-kg/repo pull
+   WARN behind origin by 49 commit(s) -- run: git -C /srv/medical-device-kg/repo pull
    PASS working tree clean
 
 == 4. structure lint ==
@@ -55,7 +55,7 @@ Filesystem      Size  Used Avail Use% Mounted on
 
 == 7. mdkg-check (outstanding items) ==
      ===================================================================
-      Medical Device KG — structure check   2026-11-02 06:30   build-vm
+      Medical Device KG — structure check   2026-11-09 06:30   build-vm
      ===================================================================
      
      [1] Shared area exists and is group-owned
@@ -65,7 +65,7 @@ Filesystem      Size  Used Avail Use% Mounted on
        ok repo/ is a git clone (branch: main)
      
      [3] No project data stranded in home directories
-       ok no large data files stranded in home directories
+       ! <user> has 1 data file(s) in home — belongs in lakeFS or $MDKG, not here
      
      [4] GraphDB data is not stored under a personal home directory
        ok no GraphDB data under a home directory
@@ -75,7 +75,7 @@ Filesystem      Size  Used Avail Use% Mounted on
        ok <credentials file> present (mode 600)
      
      ===================================================================
-      1 item(s) need attention. See WORKFLOW.md.
+      2 item(s) need attention. See WORKFLOW.md.
      ===================================================================
 
 ############################################################
