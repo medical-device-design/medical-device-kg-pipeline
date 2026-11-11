@@ -22,7 +22,9 @@ For ActionType "Warning Letter" the Case/Injunction ID is the MARCS-CMS case num
 linked (ex:relatedWarningLetter) to every ex:WarningLetter node in warning_letters.ttl whose
 ex:marcsCmsNumber equals it, preferring the letters whose ex:letterIssueDate equals the action date
 (if none has that date, all letters with the number are linked and the counts say so).
-warning_letters.ttl is read from the transform's output directory unless wl_ttl is given.
+warning_letters.ttl is read from the transform's output directory unless wl_ttl is given (a path or a
+list of paths); warning_letters_archive.ttl (letters of 1996-2004 and 2019-2020 read from FDA's web
+archives, written by warning_letters.transform(only_via=...)) is read too when it sits next to the first one.
 
 Firms whose name reads as a person (_ddapi.is_person: degree or honorific), or whose FEI dd_inspections
 judged to be an individual (_ddapi.person_context, e.g. a clinical investigator), keep no name, street address, city, ZIP, FEI or
@@ -98,7 +100,15 @@ def transform(src, out, retrieved_at=None, wl_ttl=None):
     src, out = Path(src), Path(out)
     retrieved_at = dd.retrieved_at_of(src, retrieved_at)
     wl_ttl = wl_ttl or os.environ.get("DD_WARNING_LETTERS_TTL") or (out.parent / "warning_letters.ttl")
-    wls = load_warning_letters(wl_ttl)
+    paths = [Path(x) for x in (wl_ttl if isinstance(wl_ttl, (list, tuple)) else [wl_ttl])]
+    extra = paths[0].with_name("warning_letters_archive.ttl")
+    if extra.exists() and extra not in paths:
+        paths.append(extra)
+    wls = {}
+    for pth in paths:
+        for c, v in load_warning_letters(pth).items():
+            wls.setdefault(c, []).extend(v)
+    wl_ttl = ", ".join(map(str, paths))
     st = base.Stats(source=NAME)
     nodes = {}
     counts = {"rows": 0, "person_withheld": 0, "warning_letter_actions": 0, "wl_linked_same_date": 0,
@@ -231,6 +241,12 @@ def _selftest():
         st = transform(t, t / "dd_compliance_actions.ttl", wl_ttl=t / "warning_letters.ttl")   # not $DD_WARNING_LETTERS_TTL
         ttl = (t / "dd_compliance_actions.ttl").read_text(encoding="utf-8")
         counts = json.loads((t / "dd_compliance_actions.counts.json").read_text(encoding="utf-8"))
+        # a letter of an archive run (warning_letters_archive.ttl next to warning_letters.ttl) is linked too
+        (t / "warning_letters_archive.ttl").write_text(
+            f"<{iri.warning_letter('ucm999999.htm')}>\n    a ex:WarningLetter ;\n"
+            '    ex:letterIssueDate "2009-11-20"^^xsd:date ;\n    ex:marcsCmsNumber "80585" .\n', encoding="utf-8")
+        transform(t, t / "dd2.ttl", wl_ttl=t / "warning_letters.ttl")
+        ttl2 = (t / "dd2.ttl").read_text(encoding="utf-8")
     assert st.records == 5, st                                   # Olympus duplicate merged
     ol = ttl.split(f"<{dd.fda_compliance_action('Warning Letter', '729208', '2429304')}>")[1].split("\n\n")[0]
     assert "a ex:ComplianceAction" in ol and ol.count("ex:companyName") == 1
@@ -245,6 +261,8 @@ def _selftest():
     assert "warning-letter/700001_04012025" in p and "individual" in p          # linked by number only
     for x in ("Doe", "Elm Street", "Springfield", "3009999999"):
         assert x not in ttl, x
+    c2 = ttl2.split(f"<{dd.fda_compliance_action('Warning Letter', '80585', '1177786')}>")[1].split("\n\n")[0]
+    assert f"ex:relatedWarningLetter <{iri.warning_letter('ucm999999.htm')}>" in c2, c2
     assert counts["wl_linked_same_date"] == 2 and counts["wl_linked_number_only"] == 1 and counts["wl_not_found"] == 1
     print(f"dd_compliance_actions.py self-test PASSED ({st.records} records, {st.triples} triples).")
 

@@ -16,6 +16,14 @@ is reported, not worked around, so this module:
     transform()  writes a header-only Turtle file when nothing was fetched, and stops
                  with an error if result pages exist, because their layout has never been
                  seen and a parser written blind would be a guess.
+RETRIED 2026-11-11 (after FDA support reported the database working on 2026-10-20), 22:44-22:45 UTC,
+2 s between requests, User-Agent "medical-device-kg/rebuild (Hofstra University; 1 request per second)":
+the form page answers 200 (and sets Akamai Bot Manager cookies _abck and bm_sz); every search -- POST for
+October 2026, POST with all fields blank and 500 rows, GET for 2024, POST for performance standard
+1040.10, and a POST for 2025 sent with the form's cookies and Referer -- answers HTTP 503 from
+"AkamaiNetStorage" with the same "currently unavailable" page (17,111 bytes). A single GET from a second
+network the same evening also got a server error. The block may apply to scripted clients only; per
+project rules it is reported, not worked around, so rh_actions_derived.ttl remains the stand-in.
 When the search works again: save one result page and one detail page, add parse_list /
 parse_detail with a verbatim self-test sample (model: rh_codes.py), and emit
 ex:RadiationCorrectiveAction at iri.radiation_corrective_action(<FDA id from the detail
