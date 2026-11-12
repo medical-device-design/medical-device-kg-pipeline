@@ -106,7 +106,7 @@ Every output passes `riot --validate`; triple counts from the transforms.
 - New classes and properties are declared in the "November 4, 2026" block of `ontology/ontology.ttl`. `ex:productArea`, `ex:fdaCenter`, `ex:relatedPageUrl` and `ex:summaryUrl` are now shared and lost their `rdfs:domain`.
 - The Data Dashboard API needs a user name and key; the PI's key is read from an environment file on the build VM at request time and is never logged, cached or written to an output. Requests are 1 per second.
 - Individuals: firms whose name reads as a person (degree or honorific; for Bioresearch Monitoring inspections, any personal-name shape) keep no name, street address, city, ZIP, FEI or profile URL, in all four Data Dashboard sources. MDDT, ASCA and third party review contact persons are not read.
-- Joins: inspections, citations, compliance actions and import refusals link to `iri.manufacturer(fei=...)`, the node registration/listing and the recall database use; citations link to 21 CFR sections and parts; import refusals link to the device product code only when FDA's import code is 2 digits plus a CDRH product code (37,169 of 37,491); compliance actions of type warning letter link to `ex:WarningLetter` nodes by MARCS-CMS number (`ex:relatedWarningLetter`): 441 of 1,819 (391 with the same issue date, 50 by number only), against the warning-letter file with the archive years.
+- Joins: inspections, citations, compliance actions and import refusals link to `iri.manufacturer(fei=...)`, the node registration/listing and the recall database use; citations link to 21 CFR sections and parts; import refusals link to the device product code only when FDA's import code is 2 digits plus a CDRH product code (37,169 of 37,491); compliance actions of type warning letter link to `ex:WarningLetter` nodes by MARCS-CMS number (`ex:relatedWarningLetter`): 441 of 1,819 (391 with the same issue date, 50 by number only), against the warning-letter file with the archive years; 511 of 1,819 (453 same date, 58 by number only) after the November 11 rebuild that also reads `warning_letters_archive.ttl` (below).
 
 ## FDA web archive (PI approval, November 3, 2026)
 
@@ -184,8 +184,8 @@ the 2026-11-04 download of the current index is no longer on the VM, so `warning
   ex:letterSubject (these pages show none). 64 of the 65 have a Data Dashboard compliance action with the same case number
   (`dd_compliance_actions.ttl`); FDA reuses a case number for later letters of the same case, so two of them share a number with an older
   letter in `warning_letters.ttl` (different dates, different letters). `dd_compliance_actions.transform` now also reads
-  `warning_letters_archive.ttl`, so the next regeneration links those actions with `ex:relatedWarningLetter`; the release file was not
-  regenerated (its 2026-11-04 download is gone).
+  `warning_letters_archive.ttl`; the release file was rebuilt from its 2026-11-04 download on November 11 (see "Compliance actions
+  linked to the archive letters" below).
 - **November 1996 - December 2004** (`fetch_archive_foi`): FDA's Electronic FOI Reading Room month index
   (`www.accessdata.fda.gov/scripts/wlcfm/date.cfm` and `date_archive.cfm`, linked from `www.fda.gov/foi/warning.htm`), read from
   web.archive.org (fda.gov links its archive.org copy from the FDA.gov Archive page; Archive-It 7993 has none of these pages): all 98 months,
@@ -212,6 +212,27 @@ worked around; `rh_actions_derived.ttl` stays the stand-in (module docstring upd
 education pages, and their 2010-2019 versions under `ForIndustry/DevelopingProductsforRareDiseasesConditions/DesignatingHumanitarianUseDevicesHUDS/`
 (web.archive.org and Archive-It CDX) contain no list of designations; the OOPD searchable designation database is for drugs and biologics;
 21 CFR 814 subpart H does not require FDA to publish designations (unlike 21 CFR 316.28 for orphan drugs). No public list exists; nothing added.
+
+## Compliance actions linked to the archive letters; MAUDE narratives in parts (November 11, 2026)
+
+The PI approved `warning_letters_archive.ttl` and `reference_fallback_wl_archive.ttl` for v0.0.7 (without a full reload of the test
+store) and a rebuild of `dd_compliance_actions.ttl` against them.
+
+- **`dd_compliance_actions.ttl` rebuilt** (transform only) from its 2026-11-04 Data Dashboard download, restored from the PI's archive
+  (MD5 equal to the archive copy; sha256 equal to the download manifest); no API request, so the retrieval date (2026-11-05, from the
+  manifest) is unchanged. 1,844 actions as before (same IRIs, same labels, provenance and every other triple unchanged); 42,872 triples
+  (42,801 before). `ex:relatedWarningLetter`: 512 links (441 before; +71, none removed): 511 of 1,819 warning-letter actions linked
+  (453 with the same issue date, 58 by number only). The 71 new links reach 63 letters of 2019-2020 in `warning_letters_archive.ttl`
+  (24 of 2019, 39 of 2020). Of the 64 archive letters that share a case number with a compliance action, the 64th (`491979_05162019`,
+  issued 2019-05-16) is not linked: its case's only action (2016-05-23) has a letter of the same date in `warning_letters.ttl`, which the
+  module prefers. Case 543749 (action 2018-01-10) is linked by number only to both its 2018-01-09 letter and its 2019-03-15 letter.
+  Checks: `riot --validate`, self-test, `structure_lint.sh`, `query_contract.py`; one rdfs:label per action; every link target is a
+  `ex:WarningLetter` subject of `warning_letters.ttl` or `warning_letters_archive.ttl`.
+- **MAUDE narratives uploaded in parts.** `event_text_scrubbed.ttl` (32.58 GB) is uploaded as `event_text_01.ttl` .. `event_text_08.ttl`
+  (at most 4 GiB each, as in v0.0.6, whose 8 parts of the same names they replace), cut only between complete subject blocks; every part
+  is a standalone Turtle file with the file's 5 prefixes and passes `riot --validate`. Triples 9,705,014 + 8,308,807 + 7,809,705 +
+  8,480,591 + 6,803,190 + 7,331,725 + 7,180,873 + 4,017,768 = 59,637,673, equal to the single file. The content is the file loaded and
+  tested in v007d; only the packaging changed.
 
 ## Remaining gaps
 
