@@ -58,6 +58,44 @@ CMS number), ex:url/ex:sourceUrl = the archive URL, ex:archivedFrom = the origin
 ex:dataQualityNote saying the letter was read from FDA's archive copy. Letters to individuals are
 withheld exactly as above (no name, address, FEI, firm link or URLs; provenance = the archived listing).
 
+LETTERS OF MAY 2019 - DECEMBER 2020 (fetch_archive_newsite, added 2026-11-11)
+----------------------------------------------------------------------------
+From mid-2019 FDA's listing is the JavaScript table above; Archive-It 7993 holds the page that draws it,
+but not the table data (the collection's only datatables/views/ajax captures are 404 pages), and the
+current index starts in 2021. The letter pages of that period ARE in the collection (captures
+September 2019 - December 2020) under
+    https://www.fda.gov/inspections-compliance-enforcement-and-criminal-investigations/warning-letters/<slug>-<CMS>-<MMDDYYYY>
+fetch_archive_newsite() asks the collection's CDX index for that URL prefix (status 200), keeps the
+letter URLs whose date part lies in NEWSITE_FROM..NEWSITE_TO and reads each page (all FDA centers,
+because only the page says which office issued it): from fda.gov itself when fda.gov still serves it
+(it does for the letters checked on 2026-11-11, although no FDA listing links them; cached under pages/
+like current letters, 1 request per second), otherwise the newest archive capture. The device letters
+are kept by the same filter, applied to the page's "Issuing Office" and "Product" fields (these pages
+show no Subject, so these records have no ex:letterSubject). A letter read from fda.gov is written like
+a current letter (ex:url = the fda.gov page) with an ex:dataQualityNote saying how it was found. The
+page is parsed exactly as a current letter (parse_letter: identifiers only, never the body, recipient
+name/title, signatory or e-mail addresses). Company Name comes from the page title
+("<company> - <CMS> - <MM/DD/YYYY> | FDA"). A letter already in the current index or in the 2019
+old-site listing (same key, or same issue date and company) is not written twice; the MARCS-CMS number
+alone is not a letter id (FDA reuses a case number for later letters of the same case).
+
+LETTERS BEFORE 2005 (fetch_archive_foi, added 2026-11-11)
+---------------------------------------------------------
+Before the ICECI year pages (2005-2018), FDA's Electronic FOI Reading Room listed warning letters by
+month (www.fda.gov/foi/warning.htm -> http://www.accessdata.fda.gov/scripts/wlcfm/date.cfm?MONTH=m&YEAR=y
+and date_archive.cfm, November 1996 - December 2004), columns Company Name | Date Issued | Issuing
+Office | Subject | File (PDF; HTML too for letters posted after June 25, 2001). Archive-It 7993 holds
+none of these (its CDX has no capture of /foi/warning_letters/ or of the 1996-2004 year pages except
+redirects); web.archive.org does, and fda.gov links its archive.org copy of www.fda.gov from
+https://www.fda.gov/about-fda/about-website/fdagov-archive. fetch_archive_foi() reads web.archive.org's
+CDX index for the two index scripts, the newest readable capture of every month page from FOI_FIRST
+to FOI_LAST, applies the same device filter to the rows, and reads each device letter's HTML page
+(www.fda.gov/foi/warning_letters/<file>.htm) from web.archive.org (nearest capture); PDF-only letters
+keep the listing metadata and a note that the letter was not read. NOTE: the month index pages are on
+the host www.accessdata.fda.gov (linked from the archived www.fda.gov/foi/warning.htm), not www.fda.gov;
+the letters themselves are www.fda.gov pages. Old listings write company names as "Last, First" for
+people; such rows (no organization word) are treated as letters to individuals (see above).
+
 Minter: iri.warning_letter(key) -> .../id/warning-letter/<slug(key)>
         key = "<MARCS-CMS number>-<MMDDYYYY>" taken from the letter URL ("...-727888-08262026"),
         else the whole URL slug.   iri.warning_letter('727888-08262026') -> .../id/warning-letter/727888_08262026
@@ -381,7 +419,9 @@ def _us_date(text):
     m = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{4}|\d{2})\b", t)
     if m:
         y = int(m.group(3))
-        return f"{int(m.group(1)):02d}/{int(m.group(2)):02d}/{y + 2000 if y < 100 else y}"
+        if y < 100:                      # '3/02/98' (FOI index, 1996-2004) and '12/29/17' (ICECI pages)
+            y += 1900 if y >= 70 else 2000
+        return f"{int(m.group(1)):02d}/{int(m.group(2)):02d}/{y}"
     return None
 
 
@@ -562,17 +602,298 @@ def fetch_archive(dest, delay=1.0, log=print, years=ARCHIVE_YEARS):
     return len(keep)
 
 
+# ---------------------------------------------------------------------------
+#  Letters of May 2019 - December 2020: new-site letter pages in Archive-It 7993 (fetch_archive_newsite)
+# ---------------------------------------------------------------------------
+NEW_SITE_LETTERS = SITE + "/inspections-compliance-enforcement-and-criminal-investigations/warning-letters/"
+NEWSITE_FROM, NEWSITE_TO = "2019-01-01", "2020-12-31"     # ISO dates of the letter date in the URL
+_TITLE = re.compile(r"(?is)<title>(.*?)</title>")
+_TITLE_KEY = re.compile(r"^(.*?)\s+-\s+\d{4,8}\s+-\s+\d{1,2}/\d{1,2}/\d{4}$")
+
+
+def key_date(url):
+    """'...-609781-09012020' -> '2020-09-01' (None if the URL has no CMS-date key)."""
+    m = _KEY.search((url or "").rstrip("/"))
+    if not m:
+        return None
+    d = m.group(2)
+    return f"{d[4:]}-{d[:2]}-{d[2:4]}"
+
+
+def parse_newsite_page(page):
+    """Archived new-site letter page -> {company, office, product}: header fields only. The company comes
+    from the page title; the recipient's name and title are never read here."""
+    out = {"company": None, "office": None, "product": None}
+    t = _TITLE.search(page or "")
+    if t:
+        title = re.sub(r"\s*\|\s*FDA\s*$", "", _one(t.group(1)) or "")
+        m = _TITLE_KEY.match(title)
+        out["company"] = m.group(1).strip() if m else None
+    m = re.search(r"(?s)<dt[^>]*>\s*Issuing Office:\s*</dt>\s*<dd[^>]*>(.*?)</dd>", page or "")
+    if m:
+        out["office"] = _unquote(_one(m.group(1)))
+    m = re.search(r"(?s)<dt[^>]*>\s*Product:\s*</dt>\s*<dd[^>]*>(.*?)</dd>", page or "")
+    if m:
+        out["product"] = _one(m.group(1))
+    return out
+
+
+def _iso_us(d):
+    return f"{d[5:7]}/{d[8:10]}/{d[:4]}"
+
+
+def fetch_archive_newsite(dest, delay=1.0, log=print, date_from=NEWSITE_FROM, date_to=NEWSITE_TO):
+    """Letter pages of the new fda.gov site, letter dates date_from..date_to, from Archive-It 7993
+    -> archive_newsite.json (rows like archive.json's, each with the parsed page metadata)."""
+    dest = Path(dest)
+    rd = _archive.Reader(dest / "archive", delay=delay, log=log)
+    caps = rd.ai.cdx(NEW_SITE_LETTERS.split("://", 1)[1], "aicdx_newsite_letters.txt", matchType="prefix",
+                     fl="timestamp,original,statuscode,mimetype", filter="statuscode:200")
+    best = {}
+    for c in caps:
+        u = _archive.fda_url(c.get("original"))
+        if not u or "?" in u or "html" not in (c.get("mimetype") or "html"):
+            continue
+        u = u.rstrip("/")
+        d = key_date(u)
+        if d and date_from <= d <= date_to and c.get("timestamp", "") > best.get(u, ""):
+            best[u] = c["timestamp"]
+    rows, failed, refused = [], [], None
+    live = _cfweb.Fetcher(dest, delay=delay)
+
+    def save(stage):
+        (dest / "archive_newsite.json.part").write_text(json.dumps({
+            "date": base.today(), "stage": stage,
+            "entry": "https://wayback.archive-it.org/7993/ (FDA.gov Web Archive, Archive-It collection 7993)",
+            "cdx_prefix": NEW_SITE_LETTERS, "date_from": date_from, "date_to": date_to,
+            "letter_urls": len(best), "rows": rows, "failed": failed, "refused": refused,
+            "host_refusals": rd.f.refusals}, indent=1), encoding="utf-8")
+        os.replace(dest / "archive_newsite.json.part", dest / "archive_newsite.json")
+
+    log(f"  warning_letters newsite: {len(caps)} captures, {len(best)} letter URLs dated {date_from}..{date_to}")
+    for i, u in enumerate(sorted(best), 1):
+        ts, meta = best[u], None
+        try:                                     # fda.gov still serves most of these pages
+            body = live.get(u, _page_name(u))
+        except _cfweb.Unavailable as e:
+            body = None
+            failed.append([u, "fda.gov: " + str(e)])
+        if body is None or not parse_newsite_page(body)["office"]:
+            try:
+                meta, body = rd.get(("ai", ts, u))
+            except _archive.Missing as e:
+                failed.append([u, str(e)])
+                continue
+            except _archive.Refused as e:
+                refused = str(e)
+                break
+        p = parse_newsite_page(body)
+        d = key_date(u)
+        r = {"url": u, "company": p["company"], "posted": None, "issued": _iso_us(d), "office": p["office"],
+             "subject": None, "product": p["product"], "response": [], "closeout": [], "year": int(d[:4]),
+             "listing": _archive.view_url(("ai", ts, LIST_PAGE)), "ts": ts, "page": meta, "via": "newsite",
+             "live": meta is None}
+        r["device"] = is_device({"office": r["office"], "subject": r["product"]})
+        rows.append(r)
+        if i % 50 == 0:
+            log(f"  warning_letters newsite: {i}/{len(best)} pages (fetched {rd.f.fetched}, cached {rd.f.cached}, "
+                f"device {sum(x['device'] for x in rows)})")
+            save(f"pages {i}/{len(best)}")
+    save("stopped: " + refused if refused else "complete")
+    log(f"  warning_letters newsite: {len(rows)} pages read ({sum(x['live'] for x in rows)} from fda.gov), "
+        f"{sum(x['device'] for x in rows)} device letters, "
+        f"failed {len(failed)}" + (f", STOPPED: {refused}" if refused else ""))
+    return sum(x["device"] for x in rows)
+
+
+# ---------------------------------------------------------------------------
+#  Letters before 2005: FDA's FOI reading-room month index on web.archive.org (fetch_archive_foi)
+# ---------------------------------------------------------------------------
+FOI_INDEX_PREFIX = "www.accessdata.fda.gov/scripts/wlcfm/"
+FOI_FIRST, FOI_LAST = (1996, 11), (2004, 12)
+_FOI_MONTH = re.compile(r"(?i)/wlcfm/(date|date_archive)\.cfm\?MONTH=(\d{1,2})&YEAR=(\d{4})$")
+_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+           "November", "December"]
+_LAST_FIRST = re.compile(r"^[A-Z][A-Za-z'\-]+(?:\s+[A-Z][A-Za-z'\-]+)?,\s+[A-Z][A-Za-z'.\-]*(?:\s+[A-Z][A-Za-z'.\-]*)*"
+                         r"(?:,?\s*(?:Jr|Sr|II|III)\.?)?$")
+_ORG_EXTRA = re.compile(r"(?i)\b(incorporat\w*|s\.\s?a\.?|s\.?p\.?a\.?|s\.?r\.?l\.?|n\.v\.?|b\.v\.?|a\.g\.?|limited|"
+                        r"ltda|international|industries|enterprises|products|systems|services|imaging|radiology|"
+                        r"technolog\w*|instruments?|dental|optical|labs?|x-ray|mammography)\b")
+_DEGREE_ANY = re.compile(r"(?:^Dr\.?\s|[,\s]\s*(?:M\.?\s?D|D\.?\s?O|Ph\.?\s?D|D\.?D\.?S|D\.?P\.?M)\.?(?=\s*(?:,|&|\)|$)))")
+
+
+def last_first_person(company):
+    """An old FOI index row that names a person: 'Roe, John' / 'Roe, John A.' with no organization word,
+    or any name carrying a physician's degree ('Kias, MD., PC.', 'Lucas & Bernstein, M.D., P.A.'): the
+    reading room listed letters to physicians' practices under the physician's name."""
+    c = (company or "").strip()
+    if not c:
+        return False
+    if _DEGREE_ANY.search(c):
+        return True
+    return bool(_LAST_FIRST.match(c) and not _ORG_WORD.search(c) and not _ORG_EXTRA.search(c))
+
+
+def parse_foi_list(page):
+    """FOI reading-room month index (wlcfm/date.cfm, date_archive.cfm) -> rows like parse_archived_list's
+    (plus 'pdf' / 'htm', the letter files named in the File column). Columns: Company Name | Date Issued
+    (later 'Date Warning Letter Issued') | Issuing Office | Subject | File [| Response Posted]; the 1990s
+    pages leave <TH> unclosed."""
+    hdr = [(_one(h) or "").lower() for h in
+           re.findall(r"(?is)<th\b[^>]*>(.*?)(?=<th\b|</th>|<tr\b|</tr>|</thead>|<td\b)", page or "")]
+    col = {k: next((i for i, h in enumerate(hdr) if w in h), None) for k, w in
+           (("company", "company"), ("issued", "issued"), ("office", "issuing office"), ("subject", "subject"),
+            ("file", "file"))}
+    if col["company"] is None or col["issued"] is None:
+        return []
+    rows = []
+    for tr in re.findall(r"(?is)<tr\b[^>]*>(.*?)(?=<tr\b|</table>)", page or ""):
+        cells = re.findall(r"(?is)<td\b[^>]*>(.*?)</td>", tr)
+        if len(cells) < 5:
+            continue
+        files = [_archive.fda_url(h) for h, _ in _a_links(cells[col["file"]])] if col["file"] is not None else []
+        files = [f for f in files if f]
+        htm = next((f for f in files if re.search(r"(?i)\.html?$", f)), None)
+        pdf = next((f for f in files if re.search(r"(?i)\.pdf$", f)), None)
+        rows.append({"url": htm or pdf or (files[0] if files else None), "htm": htm, "pdf": pdf,
+                     "company": _one(cells[col["company"]]), "posted": None,
+                     "issued": _us_date(_one(cells[col["issued"]])),
+                     "office": _unquote(_one(cells[col["office"]])) if col["office"] is not None else None,
+                     "subject": _unquote(_one(cells[col["subject"]])) if col["subject"] is not None else None,
+                     "response": [], "closeout": []})
+    return rows
+
+
+def _stem(url):
+    return re.sub(r"(?i)\.(pdf|html?)$", "", (url or "").rsplit("/", 1)[-1]).lower()
+
+
+def fetch_archive_foi(dest, delay=1.0, log=print, first=FOI_FIRST, last=FOI_LAST):
+    """Month index pages (first..last) and the device letters' HTML pages from web.archive.org -> archive_foi.json."""
+    dest = Path(dest)
+    rd = _archive.Reader(dest / "archive", delay=delay, log=log)
+    caps = rd.wb.cdx(FOI_INDEX_PREFIX, "wbcdx_wlcfm_len.json", matchType="prefix",
+                     fl="timestamp,original,statuscode,mimetype,length", filter="statuscode:200")
+    files = rd.wb.cdx("www.fda.gov/foi/warning_letters/", "wbcdx_foi_warning_letters.json", matchType="prefix",
+                      fl="timestamp,original,statuscode", filter="statuscode:200")
+    file_ts = {}
+    for c in files:
+        u = _archive.fda_url(c.get("original"))
+        if u:
+            file_ts.setdefault(u.lower(), []).append(c["timestamp"])
+    months = {}
+    for c in caps:
+        m = _FOI_MONTH.search(htmllib.unescape(c.get("original") or ""))
+        if not m:
+            continue
+        ym = (int(m.group(3)), int(m.group(2)))
+        if first <= ym <= last:
+            months.setdefault((ym, m.group(1).lower()), {})[c["timestamp"]] = (c["original"], int(c.get("length") or 0))
+    listings, rows, failed, refused, seen = [], [], [], None, {}
+
+    def save(stage):
+        (dest / "archive_foi.json.part").write_text(json.dumps({
+            "date": base.today(), "stage": stage,
+            "entry": "https://web.archive.org/web/*/http://www.fda.gov (linked from "
+                     "https://www.fda.gov/about-fda/about-website/fdagov-archive)",
+            "index": "http://" + FOI_INDEX_PREFIX + "date.cfm?MONTH=m&YEAR=y (and date_archive.cfm)",
+            "first": list(first), "last": list(last), "listings": listings, "rows": rows,
+            "failed": failed, "refused": refused, "host_refusals": rd.f.refusals}, indent=1), encoding="utf-8")
+        os.replace(dest / "archive_foi.json.part", dest / "archive_foi.json")
+
+    for (ym, kind) in sorted(months):
+        caps_m = months[(ym, kind)]
+        got = None
+        # many later captures of a month page are FDA's short "no letters" page (letters moved to the
+        # archive index), so the largest capture (CDX record length), then the newest, is read first
+        for ts in sorted(caps_m, key=lambda x: (caps_m[x][1], x), reverse=True)[:3]:
+            orig = re.sub(r"(?i)^https?://www\.accessdata\.fda\.gov(?::80)?/", "http://www.accessdata.fda.gov/",
+                          htmllib.unescape(caps_m[ts][0]))
+            try:
+                meta, body = rd.get(("wb", ts, orig))
+            except _archive.Missing as e:
+                failed.append([orig + " @" + ts, str(e)])
+                continue
+            except _archive.Refused as e:
+                refused = str(e)
+                break
+            rr = parse_foi_list(body)
+            if rr:
+                got = (meta, rr)
+                break
+        if refused:
+            break
+        if not got:
+            listings.append({"year": ym[0], "month": ym[1], "index": kind, "rows": 0})
+            continue
+        meta, rr = got
+        new = 0
+        for r in rr:
+            k = _stem(r["url"]) or (r["company"], r["issued"])
+            if k in seen:
+                if r.get("htm") and not seen[k].get("htm"):           # keep the HTML file when one listing has it
+                    seen[k].update(url=r["htm"], htm=r["htm"])
+                continue
+            r.update(year=ym[0], month=ym[1], listing=meta["archive_url"], listing_ts=meta["capture_ts"],
+                     ts=meta["capture_ts"], via="foi")
+            seen[k] = r
+            rows.append(r)
+            new += 1
+        listings.append({"year": ym[0], "month": ym[1], "index": kind, "ts": meta["capture_ts"],
+                         "archive_url": meta["archive_url"], "rows": len(rr), "new_rows": new})
+    for r in rows:
+        r["device"] = is_device(r)
+    log(f"  warning_letters foi: {len(listings)} month pages, {len(rows)} letters, "
+        f"{sum(r['device'] for r in rows)} device")
+    save("listings")
+    dev = [r for r in rows if r["device"] and r["url"]]
+    for i, r in enumerate(dev, 1):
+        for f in (r.get("pdf"), r.get("htm")):
+            if f and file_ts.get(f.lower()):
+                r.setdefault("file_ts", {})[f] = max(file_ts[f.lower()])
+        if refused or not r.get("htm"):
+            continue
+        try:
+            r["page"] = rd.get(("wb", r["listing_ts"], r["htm"]))[0]
+        except _archive.Missing as e:
+            failed.append([r["htm"], str(e)])
+        except _archive.Refused as e:
+            refused = str(e)
+        if i % 50 == 0:
+            log(f"  warning_letters foi: {i}/{len(dev)} device letters (fetched {rd.f.fetched}, cached {rd.f.cached})")
+            save(f"letter pages {i}/{len(dev)}")
+    save("stopped: " + refused if refused else "complete")
+    log(f"  warning_letters foi: {len(dev)} device letters, {sum(1 for r in dev if r.get('page'))} HTML pages read, "
+        f"failed {len(failed)}" + (f", STOPPED: {refused}" if refused else ""))
+    return len(dev)
+
+
+ARCHIVE_FILES = (("archive.json", "oldsite"), ("archive_newsite.json", "newsite"), ("archive_foi.json", "foi"))
+
+
 def _archived_rows(src):
-    p = Path(src) / "archive.json"
-    if not p.exists():
-        return [], None
-    a = json.loads(p.read_text(encoding="utf-8"))
-    if a.get("stage", "complete") != "complete":
-        print(f"  warning_letters: archive.json is partial ({a['stage']})")
-    return [r for r in a["rows"] if is_device(r) and r["url"]], a.get("date")
+    """Device rows of the archive runs (old-site listings, new-site pages, FOI index), each tagged with
+    'via' and its run date '_date'. Returns (rows, date of the old-site run)."""
+    out, first = [], None
+    for fn, via in ARCHIVE_FILES:
+        p = Path(src) / fn
+        if not p.exists():
+            continue
+        a = json.loads(p.read_text(encoding="utf-8"))
+        if a.get("stage", "complete") != "complete":
+            print(f"  warning_letters: {fn} is partial ({a['stage']})")
+        if via == "oldsite":
+            first = a.get("date")
+        for r in a["rows"]:
+            if not r.get("url") or not (is_device(r) if via == "oldsite" else r.get("device")):
+                continue
+            out.append(dict(r, via=r.get("via", via), _date=a.get("date")))
+    return out, first
 
 
-def transform(src, out, retrieved_at=None):
+def transform(src, out, retrieved_at=None, only_via=None):
+    """only_via=("newsite", "foi") writes only the letters those archive runs add (after the same duplicate
+    checks against the current index and the old-site listings): warning_letters_archive.ttl."""
     src, out = Path(src), Path(out)
     if retrieved_at is None and (src / "manifest.json").exists():
         try:
@@ -582,11 +903,32 @@ def transform(src, out, retrieved_at=None):
     rows = [r for r in _rows(src) if is_device(r) and r["url"]]
     arows, arch_date = _archived_rows(src)
     current = {letter_key(r["url"]) for r in rows}
-    for r in arows:
-        r["archived"] = True
-    rows += [r for r in arows if letter_key(r["url"]) not in current]
     st = base.Stats(source=NAME)
     firms, codes, counts = {}, set(), {"with_page": 0, "with_fei": 0, "with_pc": 0, "with_sub": 0, "with_cfr": 0}
+    # same letter -> one node: a letter already present is not written again. Same key (MARCS-CMS number +
+    # date, or file name) for every run; a new-site page also when a listed letter has the same issue date
+    # and company (the 2019 old-site listing names those letters by ucm id). The CMS number alone is not a
+    # letter id: FDA reuses a case number for later letters of the same case (Spectranetics 2016 and 2019).
+    # FOI-index rows with the same company and date but different files stay separate (FDA posted them as
+    # separate letters, e.g. one per facility or per program).
+    have_key = set(current)
+    have_dc = {(_us_date(r["issued"]), _squash(r["company"])) for r in rows}
+    for r in arows:
+        r["archived"] = not r.get("live")              # a new-site page read from fda.gov itself is not
+        via, k = r.get("via", "oldsite"), letter_key(r["url"])
+        if via == "oldsite":
+            if k in current:
+                continue
+        else:
+            if k in have_key or (via == "newsite" and (_us_date(r["issued"]), _squash(r["company"])) in have_dc):
+                counts[f"{via}_duplicates_skipped"] = counts.get(f"{via}_duplicates_skipped", 0) + 1
+                continue
+        have_key.add(k)
+        have_dc.add((_us_date(r["issued"]), _squash(r["company"])))
+        counts[f"{via}_letters"] = counts.get(f"{via}_letters", 0) + 1
+        rows.append(r)
+    if only_via:
+        rows = [r for r in rows if r.get("via") in only_via]
     keys = {}
     with base.TurtleWriter(out) as w:
         for r in sorted(rows, key=lambda r: letter_key(r["url"])):
@@ -613,12 +955,20 @@ def transform(src, out, retrieved_at=None):
             # a letter to a person (clinical investigator, sole individual): no name, address, firm link,
             # FEI or URL (FDA's URLs embed the name); the record keeps dates, office, subject and citations
             person = is_individual(r["company"], r["subject"], (d or {}).get("_recipient_names", ())) or \
-                (bool(arch) and _salutation_person(r["company"], (d or {}).get("_salutation")))
+                (bool(arch) and _salutation_person(r["company"], (d or {}).get("_salutation"))) or \
+                (r.get("via") == "foi" and last_first_person(r["company"]))
             counts["individual_withheld"] = counts.get("individual_withheld", 0) + person
             name = None if person else r["company"]
+            via = r.get("via", "oldsite") if arch else None
             if arch:                                         # read from FDA's archive: point at the archive copy
-                r = dict(r, original=r["url"], url=pm["archive_url"] if pm else
-                         _archive.view_url(("ai", r["ts"], r["url"])))
+                if pm:
+                    au = pm["archive_url"]
+                elif via == "foi":                           # a PDF-only letter: its own capture, if any
+                    fts = (r.get("file_ts") or {}).get(r["url"])
+                    au = _archive.view_url(("wb", fts, r["url"])) if fts else None
+                else:
+                    au = _archive.view_url(("ai", r["ts"], r["url"]))
+                r = dict(r, original=r["url"], url=au)
             pairs = [("a", "ex:WarningLetter"),
                      ("rdfs:label", common.label(f"Warning letter to {name}" if name else "Warning letter",
                                                  r["issued"], sep=", ")),
@@ -637,13 +987,30 @@ def transform(src, out, retrieved_at=None):
             if person:
                 pairs.append(("ex:dataQualityNote", common.lit(
                     "letter addressed to an individual; the name, address and letter URL are not ingested")))
+            if r.get("live"):
+                pairs.append(("ex:dataQualityNote", common.lit(
+                    "not in FDA's current warning-letter listing (which starts in 2021); found through the index of "
+                    "FDA's web archive (Archive-It collection 7993) and read from fda.gov")))
             if arch:
                 pairs.append(("ex:archivedFrom", None if person else common.lit(r["original"])))
-                pairs.append(("ex:dataQualityNote", common.lit(
-                    _archive.note("ai", pm["capture_ts"] if pm else None,
-                                  "; listed on FDA's archived " + str(r["year"]) + " warning letter page") if d else
-                    "listed on FDA's archived " + str(r["year"]) + " warning letter page (Archive-It collection 7993); "
-                    "the letter page could not be read from the archive")))
+                if via == "newsite":
+                    where = ("; found through the collection's index of fda.gov warning-letter pages (FDA's "
+                             "2019-2020 listing was a JavaScript table that the archive did not keep)")
+                elif via == "foi":
+                    where = (f"; listed on FDA's FOI reading-room warning-letter index for "
+                             f"{_MONTHS[r['month'] - 1]} {r['year']} (web.archive.org copy, captured "
+                             f"{r['listing_ts'][:4]}-{r['listing_ts'][4:6]}-{r['listing_ts'][6:8]})")
+                else:
+                    where = "; listed on FDA's archived " + str(r["year"]) + " warning letter page"
+                if d:
+                    note = _archive.note(pm.get("kind", "ai") if pm else "ai", pm["capture_ts"] if pm else None, where)
+                elif via == "foi":
+                    note = (where[2:] + "; the letter was posted only as a PDF, which was not read" if not r.get("htm")
+                            else where[2:] + "; the letter page could not be read from the archive")
+                else:
+                    note = ("listed on FDA's archived " + str(r["year"]) + " warning letter page (Archive-It "
+                            "collection 7993); the letter page could not be read from the archive")
+                pairs.append(("ex:dataQualityNote", common.lit(note)))
             m = _KEY.search((r.get("original") or r["url"]).rstrip("/"))
             cms = (d or {}).get("cms") or (m.group(1) if m else None)
             pairs.append(("ex:marcsCmsNumber", common.lit(cms)))
@@ -681,8 +1048,10 @@ def transform(src, out, retrieved_at=None):
                     pairs.append(("ex:hasRecipientFirm", f"<{iri.firm_name(nf)}>"))
                     firms.setdefault(nf, name)
             pairs += common.provenance(DATASET, key,
-                                       source_url=(r["listing"] if arch else LIST_PAGE) if person else r["url"],
-                                       retrieved_at=(arch_date or retrieved_at) if arch else retrieved_at)
+                                       source_url=(r["listing"] if arch else LIST_PAGE) if person or not r["url"]
+                                       else r["url"],
+                                       retrieved_at=(r.get("_date") or arch_date or retrieved_at) if arch
+                                       else (r.get("_date") or retrieved_at))
             w.block(subj, pairs)
             st.records += 1
         for nf in sorted(firms):
@@ -887,9 +1256,150 @@ def _selftest_archive():
     print("warning_letters.py archive self-test PASSED")
 
 
+# Verbatim rows of FDA's FOI reading-room month index (wlcfm/date.cfm), web.archive.org captures read
+# 2026-11-11 (indentation turned into spaces): March 1998 (header with unclosed <TH>, a biologics row and a
+# device row) and March 2004 (later header, PDF + HTML files). The last row ("Roe, John") is constructed in
+# the 1998 format.
+_FOI_1998 = """<TABLE cellpadding = 3 BORDER = 2 WIDTH = 100%>
+<CAPTION><B><FONT SIZE = 3>Warning Letters Index - March, 1998</CAPTION>
+<THEAD>
+<TH><B>Company Name</B>
+<TH><B>Date Issued</B>
+<TH><B>Issuing Office</B>
+<TH><B>Subject</B>
+<TH><B>File</B>
+
+
+    <TR>
+    <TD><FONT SIZE =2>Curative Health Services, Inc.</TD>
+    <TD><CENTER><FONT SIZE =2>3/02/98</CENTER></TD>
+    <TD><FONT SIZE =2>Minneapolis District Office</TD>
+    <TD><FONT SIZE =2>Biologic Drugs</TD>
+    <TD><FONT SIZE =2><A HREF = "http://www.fda.gov/foi/warning_letters/d1554b.pdf">View File</A></TD>
+    </TR>
+
+
+    <TR>
+    <TD><FONT SIZE =2>Burke/Neutech Medical Systems, Inc.</TD>
+    <TD><CENTER><FONT SIZE =2>3/02/98</CENTER></TD>
+    <TD><FONT SIZE =2>Florida District Office</TD>
+    <TD><FONT SIZE =2>Medical Devices</TD>
+    <TD><FONT SIZE =2><A HREF = "http://www.fda.gov/foi/warning_letters/d1561b.pdf">View File</A></TD>
+    </TR>
+
+    <TR>
+    <TD><FONT SIZE =2>Roe, John</TD>
+    <TD><CENTER><FONT SIZE =2>3/09/98</CENTER></TD>
+    <TD><FONT SIZE =2>Center for Devices and Radiological Health</TD>
+    <TD><FONT SIZE =2>Medical Devices</TD>
+    <TD><FONT SIZE =2><A HREF = "http://www.fda.gov/foi/warning_letters/d9999b.pdf">View File</A></TD>
+    </TR>
+</TABLE>"""
+_FOI_2004 = ("<TABLE><TR><TH><B>Company Name</B></th> <TH><B>Date Warning Letter Issued</B></th> <TH><B>Issuing "
+             "Office</B></th> <TH><B>Subject</B></th> <TH><B>File</B></th> <th><b>Response Posted</b></th> "
+             "<th>&nbsp;</th> <TR> <TD><FONT SIZE =2>MedRx, Inc.</TD> <TD><CENTER><FONT SIZE =2>3/01/04</CENTER>"
+             "</TD> <TD><FONT SIZE =2>Florida District Office</TD> <TD><FONT SIZE =2>QSR for Medical Devices/"
+             "Medical Device Reporting/Misbranded/Adulterated</TD> <TD> <FONT SIZE =2><A HREF = "
+             "\"http://www.fda.gov/foi/warning_letters/g4618d.pdf\">[PDF]</A> <br><FONT SIZE =2><A HREF = "
+             "\"http://www.fda.gov/foi/warning_letters/g4618d.htm\">[HTML]</A> </TD> <td> <center><FONT SIZE =2>"
+             "No</font></center> </td> <td> &nbsp; </td> </TR></TABLE>")
+# A new-site letter page as captured in Archive-It 7993 in 2020: header blocks in FDA's format (verbatim
+# markup of a 2020 capture), with a fictitious firm, recipient and e-mail address.
+_NEWSITE = """<html><head><title>Acme Surgical Devices Inc - 600001 - 03/05/2020 | FDA</title></head><body>
+<div class="col-md-8" role="main"> <div class="inset-column"> <dl class="lcds-description-list--grid">
+<dt class="cell-1_3">Product:</dt> <dd class="cell-2_3">Medical Devices </dd> </dl> </div> <hr>
+<div class="row inset-column"> <div class="col-xs-12 col-md-6"> <dl class=""> <dt>Recipient:</dt> <dd>
+<div class="field field--name-field-recipient-name field--type-string field--label-above">
+<div class="field--label">Recipient Name</div> <div class="field--item">John Roe</div> </div> </dd>
+<dd>Acme Surgical Devices Inc</dd> <dd><p class="address" translate="no"><span class="address-line1">1 Main St.</span><br>
+<span class="locality">Springfield</span>, <span class="administrative-area">IL</span> <span class="postal-code">62701</span><br>
+<span class="country">United States</span></p></dd> <dd><span class="fa fa-envelope" aria-hidden="true"></span>
+<a href="mailto:jroe@example.com"> jroe@example.com</a></dd> </dl> </div> <div class="col-xs-12 col-md-6"> <dl class="">
+<dt>Issuing Office:</dt> <dd>Center for Devices and Radiological Health</dd> </dl> </div> </div> <hr>
+<p>WARNING LETTER</p><p>CMS # 600001</p><p>Dear Mr. Roe:</p><p>... (FEI 3001234567) ... 21 CFR 820.198(a) ...</p>
+Content current as of: 03/10/2020</body></html>"""
+
+
+def _selftest_archive2():
+    """fetch_archive_newsite / fetch_archive_foi parsers and their records in transform()."""
+    import tempfile
+    assert _us_date("3/02/98") == "03/02/1998" and _us_date("3/01/04") == "03/01/2004"
+    assert _us_date("12/29/17") == "12/29/2017"
+    r98, r04 = parse_foi_list(_FOI_1998), parse_foi_list(_FOI_2004)
+    assert len(r98) == 3 and len(r04) == 1, (r98, r04)
+    assert r98[1]["company"] == "Burke/Neutech Medical Systems, Inc." and r98[1]["issued"] == "03/02/1998", r98[1]
+    assert r98[1]["url"] == SITE + "/foi/warning_letters/d1561b.pdf" and r98[1]["htm"] is None, r98[1]
+    assert [is_device(r) for r in r98] == [False, True, True]
+    assert r04[0]["url"] == SITE + "/foi/warning_letters/g4618d.htm" and r04[0]["pdf"].endswith("g4618d.pdf"), r04
+    assert r04[0]["office"] == "Florida District Office" and r04[0]["issued"] == "03/01/2004" and is_device(r04[0])
+    assert last_first_person("Roe, John") and last_first_person("Law, Peter K.")
+    assert not last_first_person("Burke/Neutech Medical Systems, Inc.") and not last_first_person("Acme, Inc.")
+    assert not last_first_person("Ambu, Incorporation") and not last_first_person("Stedim, S.A.")
+    assert not last_first_person("Dentomed, Incorporated") and last_first_person("Lowe, Sylvia")
+    assert last_first_person("Thomas N. Kias, MD., PC.") and last_first_person("Franz Lucas & Bernstein, M.D., P.A.")
+    assert not last_first_person("Madison Radiology") and not last_first_person("Omron Healthcare")
+    assert not last_first_person("DO-IT Corp") and last_first_person("Dr. Jane Roe") and last_first_person("Roe, John, D.O.")
+    p = parse_newsite_page(_NEWSITE)
+    assert p == {"company": "Acme Surgical Devices Inc", "office": "Center for Devices and Radiological Health",
+                 "product": "Medical Devices"}, p
+    u = NEW_SITE_LETTERS + "acme-surgical-devices-inc-600001-03052020"
+    assert key_date(u) == "2020-03-05" and letter_key(u) == "600001-03052020"
+    with tempfile.TemporaryDirectory() as t:
+        t = Path(t)
+        (t / "pages").mkdir()
+        (t / "archive" / "pages").mkdir(parents=True)
+        (t / "pages" / "list_s00000.html").write_text(_LIST, encoding="utf-8")
+        (t / "lists.json").write_text(json.dumps({"total": 3779, "lists": ["list_s00000"]}), encoding="utf-8")
+        (t / "archive" / "pages" / "n1.html").write_text(_NEWSITE, encoding="utf-8")
+        ns = {"url": u, "company": p["company"], "posted": None, "issued": "03/05/2020", "office": p["office"],
+              "subject": None, "product": p["product"], "response": [], "closeout": [], "year": 2020,
+              "listing": "https://wayback.archive-it.org/7993/20200310000000/" + LIST_PAGE, "ts": "20200310000000",
+              "via": "newsite", "device": True,
+              "page": {"page": "n1", "kind": "ai", "capture_ts": "20200311120000",
+                       "archive_url": "https://wayback.archive-it.org/7993/20200311120000/" + u}}
+        dup = dict(ns, url=NEW_SITE_LETTERS + "acme-surgical-devices-inc-600001-03052020-0", page=None)
+        u2 = NEW_SITE_LETTERS + "beta-devices-llc-600002-06012020"
+        (t / "pages" / f"{_page_name(u2)}.html").write_text(_NEWSITE.replace("Acme Surgical Devices Inc", "Beta Devices LLC")
+                                                           .replace("600001", "600002"), encoding="utf-8")
+        lv = dict(ns, url=u2, company="Beta Devices LLC", issued="06/01/2020", page=None, live=True)
+        (t / "archive_newsite.json").write_text(json.dumps({"date": "2026-11-11", "rows": [ns, dup, lv]}),
+                                                 encoding="utf-8")
+        lst = "https://web.archive.org/web/20010107171400/http://www.accessdata.fda.gov/scripts/wlcfm/date.cfm?MONTH=3&YEAR=1998"
+        foi = [dict(r, year=1998, month=3, listing=lst, listing_ts="20010107171400", ts="20010107171400", via="foi",
+                    device=is_device(r)) for r in r98]
+        foi[1]["file_ts"] = {foi[1]["url"]: "20020101000000"}
+        (t / "archive_foi.json").write_text(json.dumps({"date": "2026-11-11", "rows": foi}), encoding="utf-8")
+        st = transform(t, t / "wl.ttl", retrieved_at="2026-10-28")
+        ttl = (t / "wl.ttl").read_text(encoding="utf-8")
+        st2 = transform(t, t / "wl_archive.ttl", retrieved_at="2026-10-28", only_via=("newsite", "foi"))
+        ttl2 = (t / "wl_archive.ttl").read_text(encoding="utf-8")
+    assert st2.records == 4 and "Jiangsu" not in ttl2 and "600001_03052020" in ttl2, st2
+    assert st.records == 3 + 2 + 2, st                       # 3 current + 2 new-site (duplicate dropped) + 2 FOI
+    lb = ttl.split(f"<{iri.warning_letter('600002-06012020')}>")[1].split("\n\n")[0]
+    assert f'ex:url "{u2}"' in lb and f'ex:sourceUrl "{u2}"' in lb and "ex:archivedFrom" not in lb, lb
+    assert "found through the index of FDA's web archive" in lb and 'ex:retrievedAt "2026-11-11"^^xsd:date' in lb
+    assert f"ex:hasManufacturer <{iri.manufacturer(fei='3001234567')}>" in lb
+    blk = ttl.split(f"<{iri.warning_letter('600001-03052020')}>")[1].split("\n\n")[0]
+    assert 'ex:letterIssueDate "2020-03-05"^^xsd:date' in blk and 'ex:marcsCmsNumber "600001"' in blk, blk
+    assert 'ex:issuingOffice "Center for Devices and Radiological Health"' in blk and "ex:letterSubject" not in blk
+    assert f"ex:hasManufacturer <{iri.manufacturer(fei='3001234567')}>" in blk and f'ex:archivedFrom "{u}"' in blk
+    assert "Archive-It collection 7993, captured 2020-03-11" in blk and 'ex:retrievedAt "2026-11-11"^^xsd:date' in blk
+    assert 'ex:city "Springfield"' in blk and 'rdfs:label "Warning letter to Acme Surgical Devices Inc, 03/05/2020"' in blk
+    b98 = ttl.split(f"<{iri.warning_letter('d1561b.pdf')}>")[1].split("\n\n")[0]
+    assert 'ex:letterIssueDate "1998-03-02"^^xsd:date' in b98 and 'ex:letterSubject "Medical Devices"' in b98, b98
+    assert 'ex:url "https://web.archive.org/web/20020101000000/' + SITE + '/foi/warning_letters/d1561b.pdf"' in b98
+    assert "FOI reading-room warning-letter index for March 1998" in b98 and "PDF, which was not read" in b98
+    roe = ttl.split(f"<{iri.warning_letter('d9999b.pdf')}>")[1].split("\n\n")[0]
+    assert "letter addressed to an individual" in roe and "ex:url" not in roe and f'ex:sourceUrl "{lst}"' in roe, roe
+    for s in ("Roe", "jroe", "@example.com", "Curative", "Dear"):
+        assert s not in ttl, s
+    print("warning_letters.py archive (2019-2020 pages, FOI index) self-test PASSED")
+
+
 def _selftest():
     import tempfile
     _selftest_archive()
+    _selftest_archive2()
     total, rows = parse_list(_LIST)
     assert total == 3779 and len(rows) == 4, (total, rows)
     assert is_individual("Jane Doe, M.D.", "x") and is_individual("Jane Doe", "Clinical Investigator")
