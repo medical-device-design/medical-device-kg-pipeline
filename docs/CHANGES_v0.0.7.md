@@ -1,6 +1,6 @@
 # v0.0.7: the rest of FDA's Medical Device Databases page
 
-Status: in progress (started October 13, 2026; last updated November 8, 2026). Not uploaded to lakeFS. Per the PI, v0.0.7 is uploaded only once every database on FDA's page is in the graph.
+Status: in progress (started October 13, 2026; last updated November 11, 2026). Not uploaded to lakeFS. Per the PI, v0.0.7 is uploaded only once every database on FDA's page is in the graph.
 
 ## New sources
 
@@ -168,11 +168,56 @@ MAUDE event narratives are released only as `event_text_scrubbed.ttl` (59,190,55
 - Import refusals: 37,491 shipment IDs -> 37,491 distinct IRIs. Establishment 3008849319: one `rdfs:label`, both names as `ex:name`.
 - Self-tests (`run.py --selftest`, iri, scrub, event, registrationlisting, dd_import_refusals, patch_event_ttl), `scripts/query_contract.py` and `scripts/structure_lint.sh` pass.
 
+## Warning letters 1996-2004 and 2019-2020 from FDA's web archives; radiation corrective actions and HUD designations re-checked (November 11, 2026)
+
+New file **`warning_letters_archive.ttl`** (`warning_letters.transform(only_via=("newsite", "foi"))`): 2,741 device warning letters that
+`warning_letters.ttl` (current index from 2021, old-site year listings 2005 - April 2019) does not have. It is a separate file because
+the 2026-11-04 download of the current index is no longer on the VM, so `warning_letters.ttl` itself is kept exactly as loaded and tested.
+
+- **May 2019 - December 2020** (`fetch_archive_newsite`): FDA's listing for this period is a JavaScript table whose data no archive kept,
+  but the letter pages are listed in the CDX index of FDA's official archive (Archive-It collection 7993, captures September 2019 -
+  December 2020): 1,104 letter URLs dated 2019-2020 (all FDA centers). fda.gov still serves 1,100 of them (read from fda.gov, 1 request
+  per second; the other 4 from the archive copy). The device filter (Issuing Office / Product) keeps 75; 10 are already in
+  `warning_letters.ttl` (the January - April 2019 letters of the old-site listing, matched on issue date and company), so **65** are new
+  (25 issued in 2019, 40 in 2020; 4 of them are January - April 2019 letters missing from the last capture of the 2019 old-site listing, 61 are from May 2019 - December 2020). Same IRI rule as current letters (`warning-letter/<CMS>_<MMDDYYYY>`), MARCS-CMS number, Issuing
+  Office, Product, firm address, FEI, cited 510(k)/PMA numbers, product codes and 21 CFR citations, as for current letters; no
+  ex:letterSubject (these pages show none). 64 of the 65 have a Data Dashboard compliance action with the same case number
+  (`dd_compliance_actions.ttl`); FDA reuses a case number for later letters of the same case, so two of them share a number with an older
+  letter in `warning_letters.ttl` (different dates, different letters). `dd_compliance_actions.transform` now also reads
+  `warning_letters_archive.ttl`, so the next regeneration links those actions with `ex:relatedWarningLetter`; the release file was not
+  regenerated (its 2026-11-04 download is gone).
+- **November 1996 - December 2004** (`fetch_archive_foi`): FDA's Electronic FOI Reading Room month index
+  (`www.accessdata.fda.gov/scripts/wlcfm/date.cfm` and `date_archive.cfm`, linked from `www.fda.gov/foi/warning.htm`), read from
+  web.archive.org (fda.gov links its archive.org copy from the FDA.gov Archive page; Archive-It 7993 has none of these pages): all 98 months,
+  7,584 listed letters, 2,676 device letters (same filter). Company, issue date, issuing office, subject and the letter file are from
+  the index; letters posted after June 25, 2001 also have an HTML page, read from web.archive.org for identifiers only (861 of 862
+  read); 1,814 letters exist only as PDFs and keep the index metadata with a note. IRIs from the file name
+  (`warning-letter/g4618d_htm`, as for old-site `ucm` pages). Letters to persons (degree, "Last, First" with no organization word, clinical
+  investigator subject, salutation): 140 records with no name, address, FEI, firm link or URL.
+- No body text, recipient names or titles, signatories or e-mail addresses are stored (0 e-mail addresses in the file).
+- `reference_fallback_wl_archive.ttl` (new, 52 nodes): the cited references no release file names (510(k) K022830, K033765 and K171343, and 49 cited 21 CFR parts or sections that the current eCFR lacks: retired or non-device parts such as 1270, and typos in the letters themselves such as "21 CFR 820.901" or "21 CFR 5900.12", kept as cited), made by
+  `scripts/reference_fallback.py` and keeping only IRIs that `reference_fallback.ttl` does not already name.
+- Checked: self-tests (`warning_letters.py`, `dd_compliance_actions.py`, `rh_actions.py`, `run.py --selftest`), `riot --validate`,
+  `structure_lint.sh`, `query_contract.py`; one rdfs:label per letter; provenance on every letter; scratch TDB2 store with the new file and
+  the release files it links to (`k510`, `pma`, `classification`, `product_code_fallback`, `cfr`, `reference_fallback`, `registrationlisting`,
+  `dd_inspections`, `devices_fda`, `warning_letters`, `dd_compliance_actions`): one rdfs:label on each of the 2,741 letters; 1,147 / 1,147 citesCfrPart, 3,027 / 3,027 citesCfrSection, 53 / 53 mentionsK510Record, 6 / 6 mentionsPMARecord, 6 / 6 hasProductCode and 2,558 / 2,558 hasRecipientFirm links reach a typed, labelled node; 3 of 42 FEI targets of ex:hasManufacturer have a node, as for the release's own warning letters (40 of 89; FEI IRIs are identifier hubs); 64 of the 65 letters of 2019-2020 share the case number of a Data Dashboard compliance action (78 device warning-letter action nodes May 2019 - Dec 2020).
+- `_us_date` reads two-digit years 70-99 as 19xx (the FOI index writes 3/02/98).
+
+**Radiation-emitting product corrective actions** (`rh_res.cfm`): retried 2026-11-11 22:44 UTC after FDA support reported it working on
+October 20. The form page loads (with Akamai Bot Manager cookies); every search (five variants, also with the form's cookies and Referer)
+still answers HTTP 503 "currently unavailable" from AkamaiNetStorage; a request from a second network also got a server error. Not
+worked around; `rh_actions_derived.ttl` stays the stand-in (module docstring updated).
+
+**HUD designations**: re-checked 2026-11-11: the HUD Designation Program page (content current 12/15/2023), its FAQ, laws/guidances and
+education pages, and their 2010-2019 versions under `ForIndustry/DevelopingProductsforRareDiseasesConditions/DesignatingHumanitarianUseDevicesHUDS/`
+(web.archive.org and Archive-It CDX) contain no list of designations; the OOPD searchable designation database is for drugs and biologics;
+21 CFR 814 subpart H does not require FDA to publish designations (unlike 21 CFR 316.28 for orphan drugs). No public list exists; nothing added.
+
 ## Remaining gaps
 
 | Gap | Reason |
 |---|---|
-| Humanitarian Use Device (HUD) designations | FDA publishes no list of HUD designations. The HUD Designation Program pages on fda.gov (program page, FAQs, laws and guidances, education resources) and their archived versions (Archive-It collection 7993) link none, the guidance describes only how to request a designation, and FDA's searchable OOPD database covers orphan drug designations only. Approved HDEs (whose devices hold HUD designations) are in `hde.ttl`. |
-| Radiation-emitting product corrective actions (`rh_res.cfm`) | Every search still returns HTTP 503. The derived view (`rh_actions_derived.ttl`) stands in. |
-| Warning letters May 2019 to 2020 | FDA's current listing starts in 2021; the archived listing of those months is a JavaScript table whose data the archive did not capture. |
-| Warning letters before 2005 | The archived 1996-2004 year pages are redirect records only. |
+| Humanitarian Use Device (HUD) designations | FDA publishes no list of HUD designations. The HUD Designation Program pages on fda.gov (program page, FAQs, laws and guidances, education resources) and their archived versions (Archive-It collection 7993) link none, the guidance describes only how to request a designation, and FDA's searchable OOPD database covers orphan drug designations only. Approved HDEs (whose devices hold HUD designations) are in `hde.ttl`. Re-checked November 11, 2026 (program, FAQ and education pages and their 2010-2019 versions; OOPD database; 21 CFR 814 subpart H): still no public list. |
+| Radiation-emitting product corrective actions (`rh_res.cfm`) | Every search still returns HTTP 503 (retried November 11, 2026, after FDA support reported it working on October 20; the form page loads, every search variant gets AkamaiNetStorage's "currently unavailable" page). The derived view (`rh_actions_derived.ttl`) stands in. |
+| Warning letters May 2019 to 2020 | Closed November 11, 2026: 65 letters in `warning_letters_archive.ttl` (letter pages found through FDA's Archive-It index; see above). |
+| Warning letters before 2005 | Closed November 11, 2026 for November 1996 - December 2004: 2,676 letters in `warning_letters_archive.ttl` (FOI reading-room month index on web.archive.org; see above). Letters before November 1996 are on no index found. |
