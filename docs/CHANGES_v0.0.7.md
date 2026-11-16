@@ -1,6 +1,6 @@
 # v0.0.7: the rest of FDA's Medical Device Databases page
 
-Status: in progress (started October 13, 2026; last updated November 11, 2026). Not uploaded to lakeFS. Per the PI, v0.0.7 is uploaded only once every database on FDA's page is in the graph.
+Status: in progress (started October 13, 2026; last updated November 15, 2026). Not uploaded to lakeFS. Per the PI, v0.0.7 is uploaded only once every database on FDA's page is in the graph.
 
 ## New sources
 
@@ -234,11 +234,86 @@ store) and a rebuild of `dd_compliance_actions.ttl` against them.
   8,480,591 + 6,803,190 + 7,331,725 + 7,180,873 + 4,017,768 = 59,637,673, equal to the single file. The content is the file loaded and
   tested in v007d; only the packaging changed.
 
+## 510(k) predicate links, HUD designations, scheduled monitoring (November 15, 2026; PI decision)
+
+Not uploaded, merged or tagged. Both new files are listed for the upload (ADD) once checked; `k510_predicates.ttl` only after the
+summary PDF crawl has finished.
+
+**510(k) predicate and reference devices** (`pipeline/sources/k510_predicates.py`, new file `k510_predicates.ttl`). FDA publishes no
+structured predicate list; the 510(k) summary or statement PDF that Devices@FDA links for each 510(k) (`ex:summaryUrl` in
+`devices_fda_with_pma.ttl`, 92,859 summaries) usually names the predicate device(s) by number, and since about 2014 often reference
+devices.
+
+- Fetch: every summary PDF, 1 request per second, newest first, resumable (a file present is never requested again; 404 final; refusals
+  retried after 30 s, 2 and 10 min; stop after 10 refused in a row; stop before free disk falls below 105 GB). Started November 15, 2026
+  22:25; about 0.93 PDFs per second and 1.3 MB per PDF, so about 27 hours and 120 GB (projected free space at the end about 117 GB).
+  PDFs in `work/downloads-2026-11-04/k510_summaries/`, extracted text cached next to them.
+- Extraction "pdftotext+regex v1": K + 6 digits, DEN + 6 digits, P + 6 digits (with /Snnn), also spaced, hyphenated and OCR-tolerant
+  forms ("K 123456", "K-123456", "KO12997"); the summary's own number is never a link. Confidence high = inside a Predicate Device(s) /
+  Legally marketed device(s) / Reference Device(s) section; medium = in a substantial-equivalence or predicate passage; low = elsewhere
+  in the summary. A number labelled "(Reference)" or "used as a reference device" is a reference device (`ex:referenceDevice`), every
+  other one a predicate (`ex:predicateDevice`). P numbers only with high or medium confidence and not after "Model", "Part Number",
+  "Catalog" or "SKU" (part numbers of that form were read as PMAs in the first crawl test).
+- Model: `<citing 510(k)> ex:predicateDevice | ex:referenceDevice <target>` plus one annotated statement per link
+  (`ex:PredicateDeviceLink` / `ex:ReferenceDeviceLink`, subclasses of `ex:ExtractedLink` and `rdf:Statement`) with `rdf:subject`,
+  `rdf:predicate`, `rdf:object`, `ex:citedNumber`, `ex:citedAs` (only when written differently), `ex:extractionSection`,
+  `ex:extractionMethod`, `ex:confidence`, `ex:sourceDataset`, `ex:sourceRecordId`, `ex:sourceUrl` (the PDF) and `ex:retrievedAt`.
+  Targets through `iri.k510` / `iri.pma` (base PMA) / `iri.de_novo`; a target or citing 510(k) that no release file defines gets one
+  labelled fallback node with an `ex:dataQualityNote` (the `reference_fallback.py` pattern); nodes defined elsewhere get no label here.
+  New ontology terms (one label and one comment each): `ex:predicateDevice`, `ex:referenceDevice`, `ex:ExtractedLink`,
+  `ex:PredicateDeviceLink`, `ex:ReferenceDeviceLink`, `ex:citedNumber`, `ex:citedAs`, `ex:extractionSection`, `ex:extractionMethod`,
+  `ex:confidence`; IRI minter `iri.k510_device_link`.
+- Image-only PDFs (fewer than 100 characters of text) yield no links and are listed in `k510_predicates.ocr_backlog.tsv` for OCR on Star
+  HPC (no OCR engine on the VM). In a random sample of 200 summaries over all years 45 were image-only (mostly before 2005); among the
+  first 1,890 crawled (2025-2026) none of the new ones were.
+- **Gold sample** (50 summaries drawn at random, seed 20261116, from the first 1,302 crawled PDFs, excluding the 244 used while writing
+  the rules; all 2025-2026 summaries with a text layer; judged by reading each PDF's text): 47 name at least one other submission
+  number, 3 none. 100 links extracted. Precision: predicate links high 62/68 (91%), medium 3/3, high + medium 65/71 (92%), low 2/7
+  (29%); reference links high 21/22 (95%); a predicate or reference device of the summary regardless of kind, high + medium 90/93
+  (97%). Recall: 67 of 70 predicates found as predicates (96%; 65, 93%, with high or medium confidence), 21 of 24 reference devices
+  (88%). Errors: 4 reference devices written as predicates (a "Reference:" line inside a predicate list; reference devices listed after
+  the predicate under one heading), 1 primary predicate written as a reference device, 2 numbers that are neither (leveraged test data;
+  a sterilization pouch's clearance), 1 number mistyped in the summary's own table, 2 predicates in form fields that pdftotext breaks
+  up with underscores. Low-confidence links are mostly not predicates: filter on `ex:confidence`. Results:
+  `work/v007e/gold_fresh_results.md` on the VM. Older (scanned) summaries are not in this sample.
+- Test on the 1,890 PDFs crawled so far (`scripts/v007e_pred_finalize.sh`, test mode): 1,845 with text, 1,642 with links, 1,557 with a
+  high- or medium-confidence predicate; 3,844 links (predicate 2,358 high, 283 medium, 381 low; reference 796 high, 23 medium, 3 low),
+  53,931 triples; riot, self-tests, `structure_lint.sh`, `query_contract.py` OK; scratch TDB2 with `k510`, `pma`, `denovo` and the
+  `reference_fallback` files: every link resolves to a typed, labelled node (numbers missing from FDA's data reach labelled fallback nodes), 0 nodes with two labels,
+  provenance on every link node, every annotation asserted.
+- `scripts/schedule/k510_crawl_watch.sh` (cron) starts `scripts/schedule/k510_pred_finalize.sh final` when the crawl completes: the same
+  checks on the full set, then `RELEASE_INPUTS.txt` and `UPLOAD_PLAN.md` (ADD `k510_predicates.ttl`, backups first) and
+  `monitor/k510_predicates_finalize.md`.
+
+**HUD designations** (`pipeline/sources/hud_designations.py`, new file `hud_designations.ttl`). FDA publishes no list (see November 11),
+but each HDE's Summary of Safety and Probable Benefit states the HUD designation number and date. For the 87 original HDEs in
+`hde.ttl`: one request per HDE database page, then the summary (B) and approval order (A) PDFs that the page links (72 pages link a
+summary, 78 an order; 70 summaries and 67 orders have text). Result: 65 `ex:HUDDesignation` nodes linked from 65 HDEs
+(`ex:hasHUDDesignation`), 51 with a designation number (`ex:hudDesignationNumber`), 63 with a date (`ex:designationDate`), 47 with the
+short indication; 14 HDEs give a date but no number (node keyed on the HDE, labelled as such). Not linked: 17 HDEs with no readable
+document (no PDF linked, or image-only: 13 PDFs of 11 HDEs in `hud_designations.ocr_backlog.tsv`) and 5 whose summary leaves the
+fields blank, writes "Filed:" or is garbled. Sample check of 15 linked HDEs against the PDF text: every number and date that the
+excerpt shows is right (14 HDEs; the 15th was read from an approval order); a revised second designation date (H020008) is not kept.
+811 triples; riot, self-tests, `structure_lint.sh`, `query_contract.py` OK; scratch TDB2 with `hde.ttl`: 65 links, 0 untyped HDEs,
+0 nodes with two labels, provenance complete. New terms: `ex:HUDDesignation`, `ex:hasHUDDesignation`, `ex:hudDesignationNumber`,
+`ex:designationDate`, `ex:designatedIndication`; IRI minter `iri.hud_designation`. Listed in `RELEASE_INPUTS.txt` and `UPLOAD_PLAN.md`
+(ADD).
+
+**Scheduled monitoring and refresh** (`scripts/schedule/`, `docs/OPERATIONS.md`): daily health monitor (06:40), weekly fetch of the
+fast-changing sources with change detection (Saturday 01:10), monthly full refresh with full-size load and query batteries producing a
+release-candidate report (day 3, 02:20), and the 510(k) crawl watcher (every 30 minutes outside 09:00-12:00). None of them uploads,
+merges, tags or deletes; each runs vm-status first, defers when another project's JVM over 4 GB runs or disk would fall below need +
+100 GB, keeps JVMs at or below 8 GB, uses flock, nice and ionice, and lists older snapshots for PI-approved deletion. The weekly and
+monthly jobs do not start while the 510(k) PDF crawl runs. Installed in the crontab November 15, 2026 next to the four existing entries;
+first dry runs the same day (the monthly refresh is deferred for disk until older snapshots are released: it needs about 390 GB plus the
+reserve, 238 GB were free).
+
 ## Remaining gaps
 
 | Gap | Reason |
 |---|---|
-| Humanitarian Use Device (HUD) designations | FDA publishes no list of HUD designations. The HUD Designation Program pages on fda.gov (program page, FAQs, laws and guidances, education resources) and their archived versions (Archive-It collection 7993) link none, the guidance describes only how to request a designation, and FDA's searchable OOPD database covers orphan drug designations only. Approved HDEs (whose devices hold HUD designations) are in `hde.ttl`. Re-checked November 11, 2026 (program, FAQ and education pages and their 2010-2019 versions; OOPD database; 21 CFR 814 subpart H): still no public list. |
+| Humanitarian Use Device (HUD) designations | Closed November 15, 2026 for 65 of 87 original HDEs: designation number and date read from the HDE summaries (`hud_designations.ttl`; see above). FDA still publishes no list; designations that never led to an approved HDE are not covered, and 22 HDEs have no readable summary or no designation fields (13 PDFs listed for OCR). |
+| 510(k) predicate devices | Added November 15, 2026 from the summary PDFs (`k510_predicates.ttl`, after the crawl completes); image-only summaries (mostly before 2005) are listed for OCR on Star HPC. |
 | Radiation-emitting product corrective actions (`rh_res.cfm`) | Every search still returns HTTP 503 (retried November 11, 2026, after FDA support reported it working on October 20; the form page loads, every search variant gets AkamaiNetStorage's "currently unavailable" page). The derived view (`rh_actions_derived.ttl`) stands in. |
 | Warning letters May 2019 to 2020 | Closed November 11, 2026: 65 letters in `warning_letters_archive.ttl` (letter pages found through FDA's Archive-It index; see above). |
 | Warning letters before 2005 | Closed November 11, 2026 for November 1996 - December 2004: 2,676 letters in `warning_letters_archive.ttl` (FOI reading-room month index on web.archive.org; see above). Letters before November 1996 are on no index found. |
