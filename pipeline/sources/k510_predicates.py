@@ -25,11 +25,23 @@ fetch(dest, devices_ttl=...)
     Layout: <dest>/pdf/<first 3 characters>/<number>.pdf, <dest>/urls.tsv,
     <dest>/fetch_log.tsv, <dest>/progress.json, <dest>/manifest.json.
 
-transform(src, out, known_dir=None, workers=4)
+transform(src, out, known_dir=None, workers=4, ocr_dirs=None)
     pdftotext (poppler) on each PDF (text cached under <src>/text/), then
     extract_links() on the text. A PDF whose text layer has fewer than 100 non-space
-    characters is image-only: it is listed in <out stem>.ocr_backlog.tsv for OCR later (no
-    OCR engine is installed on the build VM) and yields no links.
+    characters is image-only. For such a PDF text_of() looks for OCR text made elsewhere
+    (no OCR engine is installed on the build VM; the OCR runs on Star HPC, see
+    scripts/star/ocr_batch.sh): a file <stem>.txt (the PDF's name with .txt, e.g.
+    K981234.txt, H970005A.txt) under one of the OCR batch folders given by `ocr_dirs` or,
+    when that is None, by the environment variable MDKG_OCR_DIR (folders separated by ":",
+    shell wildcards allowed, e.g. /srv/medical-device-kg/work/ocr-*). In each folder the
+    text is looked for under out/txt/, else txt/, else the folder itself, at any depth
+    (ocr_batch.sh writes out/txt/<kind>/pdf/K98/K981234.txt, the first batch
+    out/txt/k510/K981234.txt); a later folder in the list wins over an earlier one. OCR
+    text with at least 100 non-space characters is used and the result is marked:
+    ex:extractionMethod "ocrmypdf/tesseract+regex v1" and the confidence one level lower
+    than the same reading from a text layer (high -> medium, medium -> low, low stays low),
+    because OCR misreads digits. A PDF that still has no usable text is listed in
+    <out stem>.ocr_backlog.tsv and yields no links.
 
     Extraction method "pdftotext+regex v1":
       numbers   K + 6 digits, DEN + 6 digits, P + 6 digits (optionally /Snnn); for K and
@@ -102,6 +114,9 @@ import base       # noqa: E402
 NAME = "k510_predicates"
 DATASET = "cdrh/510k-summary-pdf"
 METHOD = "pdftotext+regex v1"
+METHOD_OCR = "ocrmypdf/tesseract+regex v1"   # text from OCR (Star HPC), same regex extraction
+OCR_ENV = "MDKG_OCR_DIR"
+DOWNGRADE = {"high": "medium", "medium": "low", "low": "low"}   # confidence of an OCR-derived reading
 USER_AGENT = "medical-device-kg/rebuild (Hofstra University; 1 request per second)"
 MIN_TEXT_CHARS = 100          # fewer non-space characters than this -> image-only PDF
 RETRY_WAITS = (30, 120, 600)  # seconds before retries 1..3 of a refused request
@@ -470,30 +485,97 @@ def extract_links(text, own):
 # ===========================================================================
 #  TRANSFORM
 # ===========================================================================
-def text_of(pdf, text_dir):
-    """pdftotext output for one PDF, cached under text_dir. Returns (text, error)."""
+def resolve_ocr_dirs(ocr_dirs=None):
+    """OCR batch folders: `ocr_dirs` (a path, a ":"-separated string or a list), else $MDKG_OCR_DIR.
+    Wildcards are expanded; folders that do not exist are dropped. Returns a tuple of str (order kept)."""
+    import glob
+    if ocr_dirs is None:
+        ocr_dirs = os.environ.get(OCR_ENV, "")
+    if isinstance(ocr_dirs, (str, os.PathLike)):
+        ocr_dirs = [p for p in str(ocr_dirs).split(os.pathsep) if p.strip()]
+    out = []
+    for p in ocr_dirs:
+        for q in (sorted(glob.glob(str(p))) if glob.has_magic(str(p)) else [str(p)]):
+            if os.path.isdir(q) and q not in out:
+                out.append(q)
+    return tuple(out)
+
+
+_OCR_INDEX = {}
+
+
+def _ocr_index(dirs):
+    """{PDF stem (upper case): OCR .txt path} over the batch folders; a later folder wins."""
+    if dirs not in _OCR_INDEX:
+        idx = {}
+        for d in dirs:
+            d = Path(d)
+            base_dir = next((b for b in (d / "out" / "txt", d / "txt") if b.is_dir()), d)
+            for t in sorted(base_dir.rglob("*.txt")):
+                idx[t.stem.upper()] = t
+        _OCR_INDEX[dirs] = idx
+    return _OCR_INDEX[dirs]
+
+
+_OCR_MARK = re.compile(r"(?m)^\s*\[(?:OCR skipped on page\(s\)[^\]]*|skipped page)\]\s*$")
+
+
+def ocr_text(pdf, ocr_dirs):
+    """OCR sidecar text for one PDF from the batch folders (see transform), or None."""
+    dirs = resolve_ocr_dirs(ocr_dirs) if not isinstance(ocr_dirs, tuple) else ocr_dirs
+    if not dirs:
+        return None
+    t = _ocr_index(dirs).get(Path(pdf).stem.upper())
+    if t is None:
+        return None
+    return _OCR_MARK.sub("", t.read_text(encoding="utf-8", errors="replace"))
+
+
+def _chars(text):
+    return len(re.sub(r"\s+", "", text or ""))
+
+
+def text_of(pdf, text_dir, ocr_dirs=()):
+    """Text of one PDF. Returns (text, error, method).
+    pdftotext output (cached under text_dir) -> method METHOD. When it has fewer than MIN_TEXT_CHARS
+    non-space characters (or pdftotext fails) and OCR text with at least MIN_TEXT_CHARS is found in the
+    OCR batch folders (`ocr_dirs`: tuple/list/str; None = $MDKG_OCR_DIR; () = no OCR) -> that text, no
+    error, method METHOD_OCR. Otherwise the (short) pdftotext text, its error and METHOD."""
+    pdf = Path(pdf)
     t = Path(text_dir) / pdf.parent.name / (pdf.stem + ".txt")
+    text, err = "", None
     if t.exists() and t.stat().st_mtime >= pdf.stat().st_mtime:
-        return t.read_text(encoding="utf-8", errors="replace"), None
-    t.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        r = subprocess.run([PDFTOTEXT, "-q", str(pdf), str(t)], capture_output=True, timeout=180)
-    except subprocess.TimeoutExpired:
-        return "", "pdftotext timeout"
-    if r.returncode != 0 or not t.exists():
-        return "", f"pdftotext exit {r.returncode}"
-    return t.read_text(encoding="utf-8", errors="replace"), None
+        text = t.read_text(encoding="utf-8", errors="replace")
+    else:
+        t.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            r = subprocess.run([PDFTOTEXT, "-q", str(pdf), str(t)], capture_output=True, timeout=180)
+            if r.returncode != 0 or not t.exists():
+                err = f"pdftotext exit {r.returncode}"
+            else:
+                text = t.read_text(encoding="utf-8", errors="replace")
+        except subprocess.TimeoutExpired:
+            err = "pdftotext timeout"
+    if (err or _chars(text) < MIN_TEXT_CHARS) and ocr_dirs != ():
+        o = ocr_text(pdf, ocr_dirs)
+        if o is not None and _chars(o) >= MIN_TEXT_CHARS:
+            return o, None, METHOD_OCR
+    return text, err, METHOD
 
 
 def _work(args):
-    pdf, text_dir, own = args
-    text, err = text_of(Path(pdf), text_dir)
-    chars = len(re.sub(r"\s+", "", text))
+    pdf, text_dir, own, ocr_dirs = args
+    text, err, method = text_of(Path(pdf), text_dir, ocr_dirs)
+    chars = _chars(text)
     if err:
-        return own, "error", err, chars, []
+        return own, "error", err, chars, [], method
     if chars < MIN_TEXT_CHARS:
-        return own, "image-only", "", chars, []
-    return own, "text", "", chars, extract_links(text, own)
+        return own, "image-only", "", chars, [], method
+    links = extract_links(text, own)
+    if method == METHOD_OCR:
+        for l in links:
+            l["confidence"] = DOWNGRADE[l["confidence"]]
+    return own, "text", "", chars, links, method
 
 
 _SUBJ_B = re.compile(rb"^<([^>]+)>")
@@ -528,10 +610,11 @@ def target_iri(number):
     return iri.k510(n), "ex:K510Record", "510(k)", "ex:kNumber", "FDA 510(k) data"
 
 
-def transform(src, out, known_dir=None, workers=4, numbers=None):
+def transform(src, out, known_dir=None, workers=4, numbers=None, ocr_dirs=None):
     src, out = Path(src), Path(out)
     known_dir = Path(known_dir) if known_dir else out.parent
     text_dir = src / "text"
+    ocr_dirs = resolve_ocr_dirs(ocr_dirs)
     urls = {}
     if (src / "urls.tsv").exists():
         urls = dict(l.split("\t") for l in (src / "urls.tsv").read_text(encoding="utf-8").splitlines()[1:] if "\t" in l)
@@ -544,10 +627,11 @@ def transform(src, out, known_dir=None, workers=4, numbers=None):
     st = base.Stats(source=NAME)
     counts = Counter()
     by_conf = Counter()
+    by_method = Counter()
     target_types = Counter()
     ocr, errors, links_rows = [], [], []
     results = []
-    jobs = [(str(p), str(text_dir), p.stem.upper()) for p in pdfs]
+    jobs = [(str(p), str(text_dir), p.stem.upper(), ocr_dirs) for p in pdfs]
     if workers and workers > 1 and len(jobs) > 50:
         with ProcessPoolExecutor(max_workers=workers) as ex:
             results = list(ex.map(_work, jobs, chunksize=64))
@@ -556,7 +640,7 @@ def transform(src, out, known_dir=None, workers=4, numbers=None):
     results.sort()
     fallback = {}
     with base.TurtleWriter(out) as w:
-        for own, state, err, chars, links in results:
+        for own, state, err, chars, links, method in results:
             counts["pdfs"] += 1
             url = urls.get(own) or log.get(own, {}).get("url", "")
             date = log.get(own, {}).get("date") or None
@@ -569,6 +653,8 @@ def transform(src, out, known_dir=None, workers=4, numbers=None):
                 counts["image_only_ocr_backlog"] += 1
                 continue
             counts["text_pdfs"] += 1
+            if method == METHOD_OCR:
+                counts["text_pdfs_from_ocr"] += 1
             if not links:
                 counts["text_pdfs_without_numbers"] += 1
                 continue
@@ -578,6 +664,8 @@ def transform(src, out, known_dir=None, workers=4, numbers=None):
             preds = [l for l in links if l["kind"] == "predicate"]
             refs = [l for l in links if l["kind"] == "reference"]
             counts["summaries_with_links"] += 1
+            if method == METHOD_OCR:
+                counts["summaries_with_links_from_ocr"] += 1
             if any(l["confidence"] in ("high", "medium") for l in preds):
                 counts["summaries_with_high_or_medium_predicate"] += 1
             pairs = []
@@ -589,8 +677,9 @@ def transform(src, out, known_dir=None, workers=4, numbers=None):
                     fallback.setdefault(t_iri, (l["number"], "target"))
                 target_types[t_cls] += 1
                 by_conf[f"{l['kind']}:{l['confidence']}"] += 1
+                by_method[method] += 1
                 links_rows.append((own, l["kind"], l["number"], l["confidence"], l["section"], l["raw"],
-                                   url, l["snippet"]))
+                                   url, l["snippet"], method))
             w.block(child, pairs)
             for l in sorted(links, key=lambda x: (x["kind"], x["number"])):
                 t_iri, t_cls, what, num_prop, data = target_iri(l["number"])
@@ -605,7 +694,7 @@ def transform(src, out, known_dir=None, workers=4, numbers=None):
                       ("ex:citedNumber", common.lit(cited)),
                       ("ex:citedAs", common.lit(raw_num) if raw_num.replace(" ", "") != cited else None),
                       ("ex:extractionSection", common.lit(l["section"])),
-                      ("ex:extractionMethod", common.lit(METHOD)),
+                      ("ex:extractionMethod", common.lit(method)),
                       ("ex:confidence", common.lit(l["confidence"]))]
                 lp += common.provenance(DATASET, f"{own}/{kind}/{cited}", source_url=url or None,
                                         retrieved_at=date)
@@ -630,7 +719,7 @@ def transform(src, out, known_dir=None, workers=4, numbers=None):
     st.triples = w.triples
     stem = out.with_suffix("")
     with open(f"{stem}.links.tsv", "w", encoding="utf-8") as f:
-        f.write("child\tkind\tcited\tconfidence\tsection\tas_written\tsummary_url\tsnippet\n")
+        f.write("child\tkind\tcited\tconfidence\tsection\tas_written\tsummary_url\tsnippet\textraction_method\n")
         for r in links_rows:
             f.write("\t".join(str(x).replace("\t", " ") for x in r) + "\n")
     with open(f"{stem}.ocr_backlog.tsv", "w", encoding="utf-8") as f:
@@ -643,8 +732,11 @@ def transform(src, out, known_dir=None, workers=4, numbers=None):
             f.write("\t".join(map(str, r)) + "\n")
     summary = {"method": METHOD, "summary_urls_listed": len(urls), "pdfs_read": counts["pdfs"],
                **{k: v for k, v in counts.items() if k != "pdfs"},
-               "links": st.records, "links_by_kind_confidence": dict(sorted(by_conf.items())),
-               "link_targets_by_class": dict(sorted(target_types.items())), "triples": st.triples}
+               "links": st.records, "links_by_kind_confidence": dict(sorted(by_conf.items()))}
+    if ocr_dirs:
+        summary.update({"ocr_method": METHOD_OCR, "ocr_dirs": list(ocr_dirs),
+                        "links_by_method": dict(sorted(by_method.items()))})
+    summary.update({"link_targets_by_class": dict(sorted(target_types.items())), "triples": st.triples})
     Path(f"{stem}.counts.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     print(f"[{NAME}] transform: {json.dumps(summary)}", flush=True)
     return st
@@ -741,10 +833,39 @@ def _selftest():
         out_dir.mkdir()
         (out_dir / "k510.ttl").write_text(f"<{iri.k510('K192386')}>\n    a ex:K510Record .\n"
                                           f"<{iri.k510('K162759')}>\n    a ex:K510Record .\n", encoding="utf-8")
+        # two image-only PDFs (cached text layer of a few characters); only K000505 has OCR text
+        for n in ("K000505", "K000606"):
+            p = pdf_path(dl, n)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"%PDF-1.4 scanned")
+            tt = dl / "text" / n[:3] / f"{n}.txt"
+            tt.parent.mkdir(parents=True, exist_ok=True)
+            tt.write_text("\f 510(k) \f", encoding="utf-8")
+            os.utime(tt, (time.time() + 5, time.time() + 5))
+        ocr1, ocr2 = d / "ocr-a", d / "ocr-b"       # first-batch layout and ocr_batch.sh layout
+        (ocr1 / "out" / "txt" / "k510").mkdir(parents=True)
+        (ocr1 / "out" / "txt" / "k510" / "K000505.txt").write_text("too short", encoding="utf-8")
+        (ocr2 / "out" / "txt" / "k510" / "pdf" / "K00").mkdir(parents=True)
+        (ocr2 / "out" / "txt" / "k510" / "pdf" / "K00" / "K000505.txt").write_text(
+            "[OCR skipped on page(s) 3]\n510(k) SUMMARY\nPredicate Device: Acme Pump K011111\n"
+            "Device Description: an infusion pump " + "z" * 150 + "\nThe device is substantially equivalent to "
+            "the Beta Pump (K022222).\n", encoding="utf-8")
+        assert resolve_ocr_dirs(f"{d}/ocr-*") == (str(ocr1), str(ocr2))
+        assert resolve_ocr_dirs([str(d / "missing")]) == ()
+        tx, er, me = text_of(pdf_path(dl, "K000505"), dl / "text", ())
+        assert me == METHOD and _chars(tx) < MIN_TEXT_CHARS and er is None
+        tx, er, me = text_of(pdf_path(dl, "K000505"), dl / "text", (str(ocr1),))     # OCR text too short
+        assert me == METHOD and _chars(tx) < MIN_TEXT_CHARS
+        tx, er, me = text_of(pdf_path(dl, "K000505"), dl / "text", (str(ocr1), str(ocr2)))   # later folder wins
+        assert me == METHOD_OCR and "K011111" in tx and "OCR skipped" not in tx, tx
+        tx, er, me = text_of(pdf_path(dl, "K192386"), dl / "text", (str(ocr1), str(ocr2)))   # text layer kept
+        assert me == METHOD and "K162759" in tx
         out = out_dir / "k510_predicates.ttl"
-        st = transform(dl, out, workers=1)
+        st = transform(dl, out, workers=1, ocr_dirs=())
         ttl = out.read_text(encoding="utf-8")
         assert st.records == 3, st
+        assert len((out_dir / "k510_predicates.ocr_backlog.tsv").read_text().splitlines()) == 3   # header + 2
+        assert "ocrmypdf" not in ttl
         assert f"<{iri.k510('K192386')}>\n    ex:predicateDevice <{iri.k510('K162759')}>" in ttl
         assert f"ex:referenceDevice <{iri.k510('K123456')}>" in ttl
         assert f"<{iri.k510_device_link('K192386', 'predicate', 'K162759')}>" in ttl
@@ -755,7 +876,34 @@ def _selftest():
         assert f"<{iri.k510('K123456')}>\n    a ex:K510Record ;\n    rdfs:label \"510(k) K123456 (named" in ttl
         assert ttl.count("rdfs:label") == 3 + 2, ttl.count("rdfs:label")
         c = json.loads((out_dir / "k510_predicates.counts.json").read_text())
-        assert c["links"] == 3 and c["summaries_with_links"] == 1
+        assert c["links"] == 3 and c["summaries_with_links"] == 1 and c["image_only_ocr_backlog"] == 2
+        # --- OCR fallback: same PDFs with the OCR folders (via $MDKG_OCR_DIR) ------------
+        old_env = os.environ.get(OCR_ENV)
+        os.environ[OCR_ENV] = f"{d}/ocr-*"
+        try:
+            out2 = out_dir / "k510_predicates_ocr.ttl"
+            st2 = transform(dl, out2, workers=1, known_dir=out_dir)
+        finally:
+            if old_env is None:
+                os.environ.pop(OCR_ENV, None)
+            else:
+                os.environ[OCR_ENV] = old_env
+        ttl2 = out2.read_text(encoding="utf-8")
+        assert st2.records == 5, st2
+        lk = iri.k510_device_link("K000505", "predicate", "K011111")
+        blk = ttl2[ttl2.index(f"<{lk}>"):].split("\n\n")[0]
+        assert f'ex:extractionMethod "{METHOD_OCR}"' in blk and 'ex:confidence "medium"' in blk, blk   # high -> medium
+        blk = ttl2[ttl2.index(f"<{iri.k510_device_link('K000505', 'predicate', 'K022222')}>"):].split("\n\n")[0]
+        assert 'ex:confidence "low"' in blk and "(low confidence)" in blk, blk                          # medium -> low
+        blk = ttl2[ttl2.index(f"<{iri.k510_device_link('K192386', 'predicate', 'K162759')}>"):].split("\n\n")[0]
+        assert f'ex:extractionMethod "{METHOD}"' in blk and 'ex:confidence "high"' in blk, blk          # unchanged
+        c2 = json.loads((out_dir / "k510_predicates_ocr.counts.json").read_text())
+        assert c2["text_pdfs_from_ocr"] == 1 and c2["image_only_ocr_backlog"] == 1, c2
+        assert c2["links_by_method"] == {METHOD: 3, METHOD_OCR: 2}, c2
+        bl = (out_dir / "k510_predicates_ocr.ocr_backlog.tsv").read_text().splitlines()
+        assert len(bl) == 2 and bl[1].startswith("K000606"), bl                     # still without usable text
+        rows = (out_dir / "k510_predicates_ocr.links.tsv").read_text().splitlines()
+        assert rows[0].endswith("\textraction_method") and sum(r.endswith(METHOD_OCR) for r in rows) == 2
     print(f"k510_predicates.py self-test PASSED ({st.records} links, {st.triples} triples).")
 
 
