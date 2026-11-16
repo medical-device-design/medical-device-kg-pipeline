@@ -1,11 +1,11 @@
 ############################################################
 # medical-device-kg VM health  --  Layer 2
-# host: build-vm   user: <user>   date_utc: 2026-11-09T11:30:01Z
+# host: build-vm   user: <user>   date_utc: 2026-11-16T11:30:01Z
 # MDKG: /srv/medical-device-kg
 ############################################################
 
 == 1. tooling ==
-   PASS java   openjdk version "21.0.12.1" 2026-08-18
+   PASS java   openjdk version "21.0.13.0.3" 2026-10-24
    PASS python Python 3.10.12
    PASS riot   Apache Jena RIOT version 5.2.0
    PASS git    git version 2.34.1
@@ -14,10 +14,10 @@
 
 == 2. disk ==
 Filesystem      Size  Used Avail Use% Mounted on
-/dev/sda3      1008G  690G  277G  72% /
-   PASS disk 72% used on /srv/medical-device-kg
+/dev/sda3      1008G  753G  214G  78% /
+   PASS disk 78% used on /srv/medical-device-kg
    tree sizes:
-     4.4M	/srv/medical-device-kg/repo
+     4.8M	/srv/medical-device-kg/repo
      3.6G	/srv/medical-device-kg/downloads
      2.2G	/srv/medical-device-kg/out
      40M	/srv/medical-device-kg/nstest
@@ -55,7 +55,7 @@ Filesystem      Size  Used Avail Use% Mounted on
 
 == 7. mdkg-check (outstanding items) ==
      ===================================================================
-      Medical Device KG — structure check   2026-11-09 06:30   build-vm
+      Medical Device KG — structure check   2026-11-16 06:30   build-vm
      ===================================================================
      
      [1] Shared area exists and is group-owned
