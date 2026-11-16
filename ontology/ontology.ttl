@@ -1369,3 +1369,55 @@ ex:labelingUrl            a owl:DatatypeProperty ; rdfs:range xsd:string ;
     rdfs:label "labeling (PDF)" ; rdfs:comment "On ex:DeviceFDARecord: a PMA labeling PDF (FDA file suffix C, and D for Labeling Part 2), written only when an HTTP HEAD check answered 200 with a PDF." .
 ex:summaryDocumentType    a owl:DatatypeProperty ; rdfs:range xsd:string ;
     rdfs:label "summary document type" ; rdfs:comment "What the PDF at ex:summaryUrl is, in FDA's words (for a PMA, 'Summary of Safety and Effectiveness'). For 510(k)s see ex:statementOrSummary." .
+
+# ---------------------------------------------------------------------------
+# v0.0.7 (November 15, 2026): predicate and reference devices read from 510(k) summary
+# PDFs (k510_predicates.py) and HUD designations read from HDE summaries
+# (hud_designations.py). Each extracted link is also written as an annotated statement
+# that carries the method, the confidence and the PDF it was read from.
+# ---------------------------------------------------------------------------
+ex:predicateDevice        a owl:ObjectProperty ; rdfs:domain ex:K510Record ;
+    rdfs:label "predicate device" ;
+    rdfs:comment "A legally marketed device (510(k), De Novo or PMA record) that the 510(k) summary names as the predicate the submission claims substantial equivalence to. Read from the summary PDF; see the ex:PredicateDeviceLink with the same rdf:subject and rdf:object for confidence and source." .
+ex:referenceDevice        a owl:ObjectProperty ; rdfs:domain ex:K510Record ;
+    rdfs:label "reference device" ;
+    rdfs:comment "A device the 510(k) summary names as a reference device (cited to support a scientific method or a technological characteristic, not as the predicate). Read from the summary PDF; see the matching ex:ReferenceDeviceLink." .
+ex:ExtractedLink          a owl:Class ; rdfs:subClassOf rdf:Statement ;
+    rdfs:label "Link read from an FDA document" ;
+    rdfs:comment "An annotated statement (rdf:subject, rdf:predicate, rdf:object) for one link that a converter read from the text of an FDA PDF, with ex:extractionMethod, ex:confidence, ex:sourceUrl (the PDF) and ex:retrievedAt. The link itself is also asserted directly." .
+ex:PredicateDeviceLink    a owl:Class ; rdfs:subClassOf ex:ExtractedLink ;
+    rdfs:label "Predicate device link (510(k) summary)" ;
+    rdfs:comment "One ex:predicateDevice statement read from a 510(k) summary PDF, with the section it was found in and a confidence (high: inside a Predicate Device(s) section; medium: in a substantial-equivalence or predicate passage; low: elsewhere in the summary)." .
+ex:ReferenceDeviceLink    a owl:Class ; rdfs:subClassOf ex:ExtractedLink ;
+    rdfs:label "Reference device link (510(k) summary)" ;
+    rdfs:comment "One ex:referenceDevice statement read from a 510(k) summary PDF (high: inside a Reference Device(s) section; medium: in a sentence naming a reference device)." .
+ex:citedNumber            a owl:DatatypeProperty ; rdfs:domain ex:ExtractedLink ; rdfs:range xsd:string ;
+    rdfs:label "cited submission number" ;
+    rdfs:comment "The 510(k), De Novo or PMA number the document cites, normalized (K123456, DEN123456, P123456 or P123456/S001 as written for a PMA supplement)." .
+ex:citedAs                a owl:DatatypeProperty ; rdfs:domain ex:ExtractedLink ; rdfs:range xsd:string ;
+    rdfs:label "cited as written" ;
+    rdfs:comment "The number exactly as the PDF text gives it, written only when it differs from ex:citedNumber (a space or hyphen inside the number, or the letter O read as a zero)." .
+ex:extractionSection      a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "where in the document" ;
+    rdfs:comment "The part of the document the value was read from (for example 'Predicate Device(s) section', 'substantial-equivalence or predicate passage', 'elsewhere in the summary')." .
+ex:extractionMethod       a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "extraction method" ;
+    rdfs:comment "How a value was read from an FDA document, with a version (for example 'pdftotext+regex v1'). Documents without a text layer are not read; they are listed for OCR." .
+ex:confidence             a owl:DatatypeProperty ; rdfs:range xsd:string ;
+    rdfs:label "extraction confidence" ;
+    rdfs:comment "high, medium or low, as defined for the extraction method (see ex:PredicateDeviceLink and ex:HUDDesignation). Measured precision for each level is reported in docs/CHANGES_v0.0.7.md." .
+ex:HUDDesignation         a owl:Class ;
+    rdfs:label "Humanitarian Use Device (HUD) designation" ;
+    rdfs:comment "FDA's designation of a device as a Humanitarian Use Device (Office of Orphan Products Development), the step before an HDE application. FDA publishes no list of designations; number, date and indication are read from the HDE's Summary of Safety and Probable Benefit (or approval order) PDF." .
+ex:hasHUDDesignation      a owl:ObjectProperty ; rdfs:domain ex:HumanitarianDeviceExemption ; rdfs:range ex:HUDDesignation ;
+    rdfs:label "has HUD designation" ;
+    rdfs:comment "The HUD designation an HDE was approved under, as its Summary of Safety and Probable Benefit states it." .
+ex:hudDesignationNumber   a owl:DatatypeProperty ; rdfs:domain ex:HUDDesignation ; rdfs:range xsd:string ;
+    rdfs:label "HUD designation number" ;
+    rdfs:comment "As printed in the HDE summary (for example '09-0222' or 'DEV-2015-0345'; a leading # is dropped)." .
+ex:designationDate        a owl:DatatypeProperty ; rdfs:domain ex:HUDDesignation ; rdfs:range xsd:date ;
+    rdfs:label "designation date" ;
+    rdfs:comment "Date of HUD designation as printed in the HDE summary." .
+ex:designatedIndication   a owl:DatatypeProperty ; rdfs:domain ex:HUDDesignation ; rdfs:range xsd:string ;
+    rdfs:label "indication (HDE summary)" ;
+    rdfs:comment "The Indications for Use statement of the HDE summary, written only when it is short (up to 800 characters); otherwise read it in the PDF at ex:sourceUrl." .

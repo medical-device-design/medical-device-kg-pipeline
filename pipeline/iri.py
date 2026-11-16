@@ -645,6 +645,27 @@ def foia_reading_room_record(key):
     return _instance("foia-reading-room-record", slug(key))
 
 
+# ---- v0.0.7: links read from 510(k) summary PDFs, HUD designations ----------
+def k510_device_link(child_number, kind, target_number):
+    """One predicate or reference device named in a 510(k) summary PDF, as an annotated
+    statement (kind 'predicate' or 'reference'), keyed on the citing 510(k), the kind and
+    the cited submission number.
+        k510_device_link('K162759', 'predicate', 'K080949')
+        -> .../id/k510-device-link/k162759/predicate/k080949"""
+    if kind not in ("predicate", "reference"):
+        raise ValueError(f"k510_device_link kind must be predicate or reference, not {kind!r}")
+    return _instance("k510-device-link", slug(child_number), kind, slug(target_number))
+
+
+def hud_designation(key):
+    """A Humanitarian Use Device (HUD) designation, keyed on FDA's designation number as
+    printed in the HDE's Summary of Safety and Probable Benefit ('#09-0222', '05-0149',
+    'DEV-2015-0345').
+        hud_designation('#09-0222')      -> .../id/hud-designation/09_0222
+        hud_designation('DEV-2015-0345') -> .../id/hud-designation/dev_2015_0345"""
+    return _instance("hud-designation", slug(key))
+
+
 # ===========================================================================
 #  SELF-TEST -- pins every minter against the layout verified on the live
 #  endpoint (2026-09-07). Run `python3 iri.py`; a failure means an IRI drifted
@@ -660,6 +681,10 @@ def _selftest():
         product_code("BRT"):                 "product-code/brt",
         k510("K033394"):                     "k510/k033394",
         k510("DEN000001"):                   "k510/den000001",
+        k510_device_link("K162759", "predicate", "K080949"): "k510-device-link/k162759/predicate/k080949",
+        k510_device_link("K192386", "reference", "DEN170002"): "k510-device-link/k192386/reference/den170002",
+        hud_designation("#09-0222"):         "hud-designation/09_0222",
+        hud_designation("DEV-2015-0345"):    "hud-designation/dev_2015_0345",
         pma("N10389"):                       "pma/n10389",
         pma("N10389", "S001"):               "pma/n10389/supplement/s001",
         de_novo("DEN160001"):                "de-novo/den160001",
