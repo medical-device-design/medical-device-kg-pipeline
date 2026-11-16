@@ -20,9 +20,12 @@ fetch(dest, hde_ttl=...)
     second, the same User-Agent, files present with size > 0 are not asked again, refusals
     retried after 30 s, 2 and 10 min, one log line per request (fetch_log.tsv).
 
-transform(src, out, hde_ttl=None)
-    pdftotext on each PDF (image-only PDFs, fewer than 100 characters of text, are listed in
-    <out stem>.ocr_backlog.tsv). From the SSPB, else the approval order:
+transform(src, out, hde_ttl=None, ocr_dirs=None)
+    pdftotext on each PDF (k510_predicates.text_of). An image-only PDF (fewer than 100
+    characters of text) is read from its OCR text when one of the OCR batch folders
+    (`ocr_dirs`, else $MDKG_OCR_DIR; see k510_predicates.transform) has <H number><letter>.txt
+    with at least 100 characters; PDFs still without usable text are listed in
+    <out stem>.ocr_backlog.tsv. From the SSPB, else the approval order:
       number   a designation number (#dd-dddd, dd-dddd, dddd-dddd or DEV-yyyy-nnnn) after
                "HUD Designation Number", "HUD #", "Humanitarian Use Device (HUD)
                Designation" or "HUD designation" (within 120 characters) -> high; such a
@@ -33,7 +36,10 @@ transform(src, out, hde_ttl=None)
                the text after an "Indications for Use" heading up to the next heading, kept
                only when it is at most 800 characters.
     Confidence is "high" for a value read from the SSPB under its label, "medium" for a
-    value read from the approval order or found by proximity.
+    value read from the approval order or found by proximity. When any value of a node
+    (number, date or indication) was read from OCR text, the node gets ex:extractionMethod
+    "ocrmypdf/tesseract+regex v1" and its confidence one level lower (high -> medium,
+    medium -> low); values read from text layers keep "pdftotext+regex v1" and their confidence.
 
 Model: <HDE> ex:hasHUDDesignation <iri.hud_designation(number)>; the ex:HUDDesignation node
 has one rdfs:label, ex:hudDesignationNumber, ex:designationDate, ex:designatedIndication
@@ -259,10 +265,11 @@ def extract(text):
     return out
 
 
-def transform(src, out, hde_ttl=None):
+def transform(src, out, hde_ttl=None, ocr_dirs=None):
     src, out = Path(src), Path(out)
     if hde_ttl is None:
         hde_ttl = out.parent / "hde.ttl"
+    ocr_dirs = kp.resolve_ocr_dirs(ocr_dirs)
     nums = hde_originals(hde_ttl)
     log = _read_log(src)
     st = base.Stats(source=NAME)
@@ -277,20 +284,21 @@ def transform(src, out, hde_ttl=None):
             counts["pages"] += 1
             counts["pages_linking_summary_B"] += "B" in links
             counts["pages_linking_order_A"] += "A" in links
-        found, used = None, None
-        texts = {}
+        texts, how = {}, {}
         for letter in ("B", "A"):
             pdf = src / "pdf" / f"{n}{letter}.pdf"
             if not pdf.exists():
                 continue
-            text, err = kp.text_of(pdf, src / "text")
+            text, err, method = kp.text_of(pdf, src / "text", ocr_dirs)
             chars = len(re.sub(r"\s+", "", text))
             if err or chars < kp.MIN_TEXT_CHARS:
                 ocr.append((n, letter, log.get((n, letter), {}).get("url", ""), chars, err or "image-only"))
                 counts[f"ocr_backlog_{letter}"] += 1
                 continue
             counts[f"text_{letter}"] += 1
-            texts[letter] = extract(text)
+            if method == kp.METHOD_OCR:
+                counts[f"text_{letter}_from_ocr"] += 1
+            texts[letter], how[letter] = extract(text), method
         b, a = texts.get("B"), texts.get("A")
         number, conf, letter = None, None, None
         if b and b["number"]:
@@ -301,9 +309,12 @@ def transform(src, out, hde_ttl=None):
         date_from = "B" if (b or {}).get("date") else ("A" if (a or {}).get("date") else None)
         ind = (b or {}).get("indication")
         if not number and not date:
-            rows.append((n, "", "", "", "", "none found" if texts else "no text"))
+            rows.append((n, "", "", "", "", "none found" if texts else "no text", ""))
             continue
         letter = letter or date_from
+        # extraction method: OCR when any value used was read from OCR text; confidence one level lower then
+        used = {x for x in ((letter if number else None), date_from, ("B" if ind else None)) if x}
+        method = kp.METHOD_OCR if any(how.get(x) == kp.METHOD_OCR for x in used) else METHOD
         url = log.get((n, letter), {}).get("url")
         retrieved = log.get((n, letter), {}).get("date")
         if number:
@@ -313,6 +324,9 @@ def transform(src, out, hde_ttl=None):
             key, lab = f"hde-{n}", f"HUD designation of HDE {n} (number not stated in the summary)"
             conf = "medium"
             counts["date_only"] += 1
+        if method == kp.METHOD_OCR:
+            conf = kp.DOWNGRADE[conf]
+            counts["read_from_ocr"] += 1
         if date:
             counts["with_date"] += 1
         if ind:
@@ -325,14 +339,14 @@ def transform(src, out, hde_ttl=None):
                      ("ex:designatedIndication", common.lit(ind) if ind else None),
                      ("ex:extractionSection", common.lit("Summary of Safety and Probable Benefit, general information"
                                                          if letter == "B" else "Approval order")),
-                     ("ex:extractionMethod", common.lit(METHOD)),
+                     ("ex:extractionMethod", common.lit(method)),
                      ("ex:confidence", common.lit(conf))]
             pairs += common.provenance(DATASET, n, source_url=url, retrieved_at=retrieved)
             nodes[d_iri] = (pairs, [n])
         else:
             nodes[d_iri][1].append(n)
             counts["shared_designation"] += 1
-        rows.append((n, number or "", date or "", conf, letter, (ind or "")[:120]))
+        rows.append((n, number or "", date or "", conf, letter, (ind or "")[:120], method))
     with base.TurtleWriter(out) as w:
         for d_iri in sorted(nodes):
             pairs, hdes = nodes[d_iri]
@@ -343,7 +357,7 @@ def transform(src, out, hde_ttl=None):
     st.triples = w.triples
     stem = out.with_suffix("")
     with open(f"{stem}.rows.tsv", "w", encoding="utf-8") as f:
-        f.write("hde\tdesignation_number\tdesignation_date\tconfidence\tread_from\tindication_start\n")
+        f.write("hde\tdesignation_number\tdesignation_date\tconfidence\tread_from\tindication_start\textraction_method\n")
         for r in rows:
             f.write("\t".join(str(x).replace("\t", " ") for x in r) + "\n")
     with open(f"{stem}.ocr_backlog.tsv", "w", encoding="utf-8") as f:
@@ -351,6 +365,8 @@ def transform(src, out, hde_ttl=None):
         for r in ocr:
             f.write("\t".join(map(str, r)) + "\n")
     summary = {"method": METHOD, **dict(counts), "designation_nodes": st.records, "triples": st.triples}
+    if ocr_dirs:
+        summary.update({"ocr_method": kp.METHOD_OCR, "ocr_dirs": list(ocr_dirs)})
     Path(f"{stem}.counts.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
     print(f"[{NAME}] transform: {json.dumps(summary)}", flush=True)
     return st
@@ -395,8 +411,9 @@ def _selftest():
         d = Path(d)
         (d / "hde.ttl").write_text(f"<{iri.hde('H170001')}>\n    a ex:HumanitarianDeviceExemption .\n\n"
                                    f"<{iri.hde('H170001', 'S001')}>\n    a ex:HumanitarianDeviceExemption .\n\n"
-                                   f"<{iri.hde('H990014')}>\n    a ex:HumanitarianDeviceExemption .\n", encoding="utf-8")
-        assert hde_originals(d / "hde.ttl") == ["H170001", "H990014"]
+                                   f"<{iri.hde('H990014')}>\n    a ex:HumanitarianDeviceExemption .\n\n"
+                                   f"<{iri.hde('H980007')}>\n    a ex:HumanitarianDeviceExemption .\n", encoding="utf-8")
+        assert hde_originals(d / "hde.ttl") == ["H170001", "H980007", "H990014"]
         pages = {"H170001": b'<a href="https://www.accessdata.fda.gov/cdrh_docs/pdf17/H170001B.pdf">',
                  "H990014": b'<a href="https://www.accessdata.fda.gov/cdrh_docs/pdf/H990014B.pdf">'}
 
@@ -415,9 +432,32 @@ def _selftest():
             t.parent.mkdir(parents=True, exist_ok=True)
             t.write_text(txt, encoding="utf-8")
             os.utime(t, (time.time() + 5, time.time() + 5))
+        # H980007: a scanned SSPB (text layer of a few characters) with OCR text from Star
+        (src / "pdf" / "H980007B.pdf").write_bytes(b"%PDF-1.4 scanned")
+        t = src / "text" / "pdf" / "H980007B.txt"
+        t.write_text("\f\f 1 \f", encoding="utf-8")
+        os.utime(t, (time.time() + 5, time.time() + 5))
+        o = d / "ocr-2026-11" / "out" / "txt" / "hud"
+        o.mkdir(parents=True)
+        (o / "H980007B.txt").write_text("I. GENERAL INFORMATION\nHumanitarian Use Device (HUD) Designation Number: "
+                                        "98-0011\nDate of HUD Designation: March 3, 1998\n" + "w" * 150, encoding="utf-8")
         out = d / "hud_designations.ttl"
-        st = transform(src, out, hde_ttl=d / "hde.ttl")
+        st = transform(src, out, hde_ttl=d / "hde.ttl", ocr_dirs=())
         ttl = out.read_text(encoding="utf-8")
+        assert "\nH980007\tB\t" in (d / "hud_designations.ocr_backlog.tsv").read_text()
+        out2 = d / "hud_designations_ocr.ttl"
+        st2 = transform(src, out2, hde_ttl=d / "hde.ttl", ocr_dirs=[str(d / "ocr-*")])
+        ttl2 = out2.read_text(encoding="utf-8")
+        c2 = json.loads((d / "hud_designations_ocr.counts.json").read_text())
+        bl2 = (d / "hud_designations_ocr.ocr_backlog.tsv").read_text().splitlines()
+        rows2 = (d / "hud_designations_ocr.rows.tsv").read_text().splitlines()
+    assert st2.records == 3 and c2["read_from_ocr"] == 1 and c2["text_B_from_ocr"] == 1 and len(bl2) == 1, (st2, c2, bl2)
+    blk = ttl2[ttl2.index(f"<{iri.hud_designation('98-0011')}>\n    a "):].split("\n\n")[0]
+    assert f'ex:extractionMethod "{kp.METHOD_OCR}"' in blk and 'ex:confidence "medium"' in blk, blk   # high -> medium
+    assert 'ex:designationDate "1998-03-03"^^xsd:date' in blk, blk
+    blk = ttl2[ttl2.index(f"<{iri.hud_designation('DEV-2015-0345')}>\n    a "):].split("\n\n")[0]
+    assert f'ex:extractionMethod "{METHOD}"' in blk and 'ex:confidence "high"' in blk, blk           # unchanged
+    assert any(r.startswith("H980007\t98-0011\t1998-03-03\tmedium\tB\t") and r.endswith(kp.METHOD_OCR) for r in rows2), rows2
     assert st.records == 2, st
     assert f"<{iri.hde('H170001')}>\n    ex:hasHUDDesignation <{iri.hud_designation('DEV-2015-0345')}>" in ttl
     assert 'ex:designationDate "2015-12-21"^^xsd:date' in ttl and 'ex:confidence "high"' in ttl

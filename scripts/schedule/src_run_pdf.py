@@ -3,6 +3,7 @@
 
     python3 -I src_run_pdf.py <k510_predicates|hud_designations> <fetch|transform|all> <out dir>
                               [--sample N] [--limit N] [--workers N] [--numbers-file F]
+                              [--ocr-dir DIR ...]
 
 The PDFs are a cache shared by every snapshot (they do not change once FDA posts them):
     $PDF_CACHE_ROOT/k510_summaries     (default work/downloads-2026-11-04/k510_summaries)
@@ -10,6 +11,9 @@ The PDFs are a cache shared by every snapshot (they do not change once FDA posts
 fetch reads the record lists from <out dir>/devices_fda_with_pma.ttl and <out dir>/hde.ttl and asks only for
 documents not yet in the cache (1 request per second). transform writes <out dir>/<source>.ttl and its
 .counts.json / .links.tsv / .rows.tsv / .ocr_backlog.tsv, resolving targets against the files in <out dir>.
+Image-only PDFs are read from OCR text in the batch folders given by --ocr-dir (repeatable, wildcards
+allowed) or, without --ocr-dir, by $MDKG_OCR_DIR (":"-separated; scripts/schedule/common.sh sets it to
+work/ocr-* unless it is already set); see k510_predicates.transform.
 """
 import argparse
 import json
@@ -36,6 +40,7 @@ def main():
     ap.add_argument("--limit", type=int)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--numbers-file")
+    ap.add_argument("--ocr-dir", action="append", help="OCR batch folder (repeatable); default $MDKG_OCR_DIR")
     a = ap.parse_args()
     row = licence.check(a.name, licence.load(), allow_restricted=False)
     if row["open_release"].strip().lower() != "yes":
@@ -53,9 +58,9 @@ def main():
     if a.stage in ("transform", "all"):
         out = out_dir / f"{a.name}.ttl"
         if a.name == "k510_predicates":
-            st = mod.transform(dl, out, known_dir=out_dir, workers=a.workers, numbers=nums)
+            st = mod.transform(dl, out, known_dir=out_dir, workers=a.workers, numbers=nums, ocr_dirs=a.ocr_dir)
         else:
-            st = mod.transform(dl, out, hde_ttl=out_dir / "hde.ttl")
+            st = mod.transform(dl, out, hde_ttl=out_dir / "hde.ttl", ocr_dirs=a.ocr_dir)
         print(json.dumps({"records": st.records, "triples": st.triples, "out": str(out)}))
     print(f"[{a.name}] {a.stage} finished in {round(time.time() - t)} s", flush=True)
     return 0
