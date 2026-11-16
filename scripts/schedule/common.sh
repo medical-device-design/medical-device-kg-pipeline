@@ -18,6 +18,9 @@ RESERVE_GB=100
 LOCKDIR=$M/monitor/locks
 mkdir -p "$MON" "$LD" "$LOCKDIR" "$MON/daily" "$MON/weekly" "$MON/monthly"
 export PYTHONDONTWRITEBYTECODE=1
+# OCR text of image-only 510(k)/HDE PDFs (Star HPC batches, scripts\star\ocr_batch.sh on the PI's PC):
+# the PDF transforms read it from these folders (":"-separated, wildcards expanded by k510_predicates.py)
+export MDKG_OCR_DIR=${MDKG_OCR_DIR:-$W/ocr-*}
 
 DRY=0
 for a in "$@"; do [ "$a" = "--dry-run" ] && DRY=1; done

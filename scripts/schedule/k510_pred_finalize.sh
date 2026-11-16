@@ -1,23 +1,31 @@
 #!/bin/bash
 # k510_pred_finalize.sh -- build and check k510_predicates.ttl from the 510(k) summary PDFs (no upload).
 #
-#   bash scripts/schedule/k510_pred_finalize.sh [final|test|auto]
+#   bash scripts/schedule/k510_pred_finalize.sh [first|final|test|auto]
 #
-#   final  the crawl has finished: transform every cached PDF into work/out-2026-11-04/k510_predicates.ttl,
-#          check it, and (only when every check passes) add it to RELEASE_INPUTS.txt and to the ADD table of
+#   first  the crawl has finished (started by k510_crawl_watch.sh): the steps of final, written to
+#          work/out-2026-11-04/, but the release list and the upload plan are not touched. Its purpose is the
+#          OCR backlog (k510_predicates.ocr_backlog.tsv: image-only PDFs still without OCR text); writes
+#          monitor/k510_finalize_first.done. The watcher then writes monitor/k510_ocr_needed.md with the
+#          command for the PI's PC (scripts\star\post_crawl_ocr.ps1: bulk OCR on Star HPC, then final).
+#   final  transform every cached PDF into work/out-2026-11-04/k510_predicates.ttl, check it, and (only when
+#          every check passes) add it to RELEASE_INPUTS.txt and to the ADD table of
 #          work/fulltest-v007d/UPLOAD_PLAN.md (both backed up first by work/v007e/release_add.py).
 #   test   the crawl is still running: the same steps on the PDFs downloaded so far, written to
 #          work/tmp-v007e/pred-final-test/; the release list and the upload plan are not touched.
 #   auto   (default) test while the crawl runs, final once it has stopped.
+# OCR text: image-only PDFs are read from the OCR batch folders in $MDKG_OCR_DIR (":"-separated, wildcards
+# allowed; common.sh sets work/ocr-* when it is not set), see k510_predicates.transform. Links read from OCR
+# text carry ex:extractionMethod "ocrmypdf/tesseract+regex v1" and one confidence level less.
 # Steps: vm-status; gates (no other project's JVM over 4 GB, free disk >= 10 GB + the 100 GB reserve);
 # transform (pdftotext + extraction, 4 worker processes, nice/ionice) -> riot --validate --syntax=turtle and
 # riot --count (JVM 2 GB) -> module self-tests -> scripts/structure_lint.sh -> scripts/query_contract.py ->
 # one label per subject, no e-mail addresses -> scratch TDB2 store under work/tmp-v007e with k510.ttl,
 # pma.ttl, denovo.ttl and the reference_fallback files (links resolve, no untyped target, no node with two
 # labels, provenance on every link node, every annotation asserted) -> summary.
-# Summary: monitor/k510_predicates_finalize.md (final) or monitor/k510_predicates_finalize-test.md (test);
-# final writes monitor/k510_finalize.done or monitor/k510_finalize.failed. Never uploads, merges, tags or
-# deletes PDFs; the scratch store is removed after the queries.
+# Summary: monitor/k510_predicates_finalize.md (final), -first.md (first) or -test.md (test); final writes
+# monitor/k510_finalize.done (and removes monitor/k510_ocr_needed.md) or monitor/k510_finalize.failed.
+# Never uploads, merges, tags or deletes PDFs; the scratch store is removed after the queries.
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/common.sh"
 MODE=${1:-auto}
@@ -26,23 +34,28 @@ exec 8> "$LOCKDIR/heavy.lock"; flock 8          # the weekly fetch and the month
 OUT=${FINAL_OUT:-$W/out-2026-11-04}
 K=${PDF_CACHE_ROOT:-$W/downloads-2026-11-04}/k510_summaries
 E=$W/v007e
+case "$MODE" in first|final|test|auto) ;; *) log "unknown mode $MODE (first|final|test|auto)"; exit 2;; esac
 if [ "$MODE" = auto ]; then if pdf_crawl_running; then MODE=test; else MODE=final; fi; fi
-if [ "$MODE" = final ] && pdf_crawl_running; then log "the crawl is still running; final mode refused"; exit 1; fi
-if [ "$MODE" = final ]; then T=$OUT; REP=$MON/k510_predicates_finalize.md; else T=$W/tmp-v007e/pred-final-test; REP=$MON/k510_predicates_finalize-test.md; fi
+if [ "$MODE" != test ] && pdf_crawl_running; then log "the crawl is still running; $MODE mode refused"; exit 1; fi
+case "$MODE" in
+  final) T=$OUT; REP=$MON/k510_predicates_finalize.md;;
+  first) T=$OUT; REP=$MON/k510_predicates_finalize-first.md;;
+  *)     T=$W/tmp-v007e/pred-final-test; REP=$MON/k510_predicates_finalize-test.md;;
+esac
 S=$W/tmp-v007e/finalize-$MODE; DB=$S/tdb; Q=$S/q
 rm -rf "$DB"; mkdir -p "$T" "$S" "$Q"
 F=$T/k510_predicates.ttl
 exec > "$S/finalize.log" 2>&1 < /dev/null
 export JVM_ARGS=-Xmx2G TMPDIR=$S
 FAIL=()
-log "== k510_predicates finalize ($MODE) start; output $F"
+log "== k510_predicates finalize ($MODE) start; output $F; MDKG_OCR_DIR=${MDKG_OCR_DIR:-}"
 vm_status > "$S/vmstatus.txt"
 while ! gate k510_finalize 10; do log "gate: $GATE_MSG; waiting 10 min"; sleep 600; done
 log "gate: $GATE_MSG"
 
 # ---------- 1. transform
 t0=$(date +%s)
-if [ "$MODE" = final ]; then
+if [ "$MODE" = final ] || [ "$MODE" = first ]; then
   ( cd "$WT" && nicely python3 -I "$HERE/src_run_pdf.py" k510_predicates transform "$OUT" --workers 4 ) > "$S/transform.log" 2>&1 || FAIL+=("transform")
 else
   ( cd "$WT" && nicely python3 -I - "$K" "$F" "$OUT" ) > "$S/transform.log" 2>&1 <<'PY' || FAIL+=("transform")
@@ -147,9 +160,11 @@ jv() { python3 -I -c "import json,sys; d=json.load(open('$C')); print($1)" 2>/de
 LINKS=$(jv 'd["links"]'); PDFS=$(jv 'd["pdfs_read"]'); OCR=$(jv 'd.get("image_only_ocr_backlog",0)')
 SUMS=$(jv 'd.get("summaries_with_links",0)'); HM=$(jv 'd.get("summaries_with_high_or_medium_predicate",0)')
 BYC=$(jv '", ".join(f"{k} {v:,}" for k,v in d["links_by_kind_confidence"].items())')
+OCRT=$(jv 'd.get("text_pdfs_from_ocr",0)'); OCRL=$(jv 'd.get("links_by_method",{}).get(d.get("ocr_method",""),0)')
+OCRD=$(jv '" ".join(d.get("ocr_dirs",[])) or "none"')
 REL="not changed ($MODE mode)"
 if [ "$MODE" = final ] && [ ${#FAIL[@]} = 0 ]; then
-  WHAT="predicate and reference devices read from ${PDFS} 510(k) summary PDFs (${LINKS} links from ${SUMS} summaries; ${HM} with a high- or medium-confidence predicate; ${OCR} image-only PDFs listed for OCR)"
+  WHAT="predicate and reference devices read from ${PDFS} 510(k) summary PDFs (${LINKS} links from ${SUMS} summaries; ${HM} with a high- or medium-confidence predicate; ${OCRT:-0} PDFs read from OCR text, ${OCRL:-0} links from them, one confidence level lower; ${OCR} image-only PDFs still without text)"
   NOTE="riot OK, ${COUNT#Triples = } triples; self-tests, structure_lint, query_contract OK; scratch TDB2 with k510/pma/denovo/reference_fallback: 0 dangling or untyped targets, 0 nodes with 2 labels, provenance complete"
   REL=$(python3 -I $E/release_add.py "$F" "$WHAT" "$NOTE" 2>&1 | tail -1)
   echo "$REL" | grep -q "RELEASE_INPUTS.txt:" || FAIL+=("release_add.py")
@@ -179,7 +194,8 @@ STATUS="PASSED"; [ ${#FAIL[@]} = 0 ] || STATUS="FAILED: ${FAIL[*]}"
   echo "Nothing uploaded, merged or tagged. Output: $F"
   echo
   echo "- PDFs: $MISSING"
-  echo "- read: ${PDFS:-?} PDFs; ${SUMS:-?} summaries with links; ${HM:-?} with a high- or medium-confidence predicate; ${OCR:-?} image-only (OCR backlog: ${F%.ttl}.ocr_backlog.tsv)"
+  echo "- read: ${PDFS:-?} PDFs; ${SUMS:-?} summaries with links; ${HM:-?} with a high- or medium-confidence predicate; ${OCR:-?} image-only and still without OCR text (OCR backlog: ${F%.ttl}.ocr_backlog.tsv)"
+  echo "- OCR text (ocrmypdf/tesseract on Star HPC): ${OCRT:-0} PDFs read from it, ${OCRL:-0} links (confidence one level lower); folders: ${OCRD:-none}"
   echo "- links: ${LINKS:-?} ($BYC)"
   echo "- riot --validate --syntax=turtle: $RIOT; $COUNT"
   echo "- self-tests:"; printf "%s" "$ST"
@@ -196,7 +212,13 @@ STATUS="PASSED"; [ ${#FAIL[@]} = 0 ] || STATUS="FAILED: ${FAIL[*]}"
   echo "Log: $S/finalize.log; transform log: $S/transform.log"
 } > "$REP.part" && mv "$REP.part" "$REP"
 if [ "$MODE" = final ]; then
-  if [ ${#FAIL[@]} = 0 ]; then echo "$(now) $REP" > $MON/k510_finalize.done; rm -f $MON/k510_finalize.failed
+  if [ ${#FAIL[@]} = 0 ]; then echo "$(now) $REP" > $MON/k510_finalize.done; rm -f $MON/k510_finalize.failed $MON/k510_ocr_needed.md
   else echo "$(now) $STATUS" > $MON/k510_finalize.failed; alert k510_finalize "$STATUS"; fi
+elif [ "$MODE" = first ]; then
+  # the OCR backlog is what this pass is for: with a backlog file the OCR can go ahead even if a check failed
+  # (the final run repeats every check); without one the watcher stops (k510_finalize.failed)
+  if [ -f "${F%.ttl}.ocr_backlog.tsv" ] && [ -s "$F" ]; then echo "$(now) $STATUS $REP" > $MON/k510_finalize_first.done
+  else echo "$(now) first pass: $STATUS" > $MON/k510_finalize.failed; fi
+  [ ${#FAIL[@]} = 0 ] || alert k510_finalize "first pass $STATUS"
 fi
 log "== k510_predicates finalize ($MODE) end: $STATUS; summary $REP"

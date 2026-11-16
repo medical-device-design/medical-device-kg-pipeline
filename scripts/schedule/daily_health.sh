@@ -74,6 +74,8 @@ if [ -e $P ]; then
   [ -e $MON/k510_crawl_status.md ] && grep "projected free" $MON/k510_crawl_status.md | sed "s/^/  /"
   [ -e $MON/k510_finalize.done ] && echo "- k510_predicates finalize: done ($(cat $MON/k510_finalize.done))"
   [ -e $MON/k510_finalize.failed ] && echo "- k510_predicates finalize: FAILED ($(cat $MON/k510_finalize.failed))"
+  [ -e $MON/k510_finalize_first.done ] && [ ! -e $MON/k510_finalize.done ] && echo "- k510_predicates first pass: done ($(cat $MON/k510_finalize_first.done))"
+  [ -e $MON/k510_ocr_needed.md ] && echo "- OCR on Star needed before the final run: $(grep -m1 '^- image-only' $MON/k510_ocr_needed.md | sed 's/^- //') -- see monitor/k510_ocr_needed.md"
 fi
 for j in weekly monthly; do
   L=$(ls -t $MON/$j/*.md 2>/dev/null | head -1)
