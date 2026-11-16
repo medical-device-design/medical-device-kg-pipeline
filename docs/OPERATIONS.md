@@ -11,7 +11,7 @@ No scheduled job uploads to lakeFS, merges, tags or deletes data; releases stay 
 | daily 06:40 | `daily_health.sh` | vm-status; free disk (alert below 130 GB); JVMs (ours, the other project's over 4 GB, the two Fuseki servers); lakeFS release watcher (crontab line and age of `logs/lakefs-watch.log`); 510(k) PDF crawl and its finalize; last weekly and monthly reports; one request to each source endpoint (status code and time only), including the radiation corrective-action search `cfPCD_RH/rh_res.cfm` (history in `monitor/radiation_corrective_actions.tsv`); retention candidates | `monitor/latest.md`, `monitor/daily/YYYY-MM-DD.md`, `monitor/alerts.log` |
 | Saturday 01:10 | `weekly_fetch.sh` | fetch of the fast-changing sources (openFDA recalls, recall_db, k510, pma, registrationlisting; MAUDE bulk only when openFDA shows a new export date and the disk allows; recall_class, denovo; warning letters, safety communications, shortages; the four Data Dashboard endpoints) into `work/weekly-YYYY-MM-DD/`, transform without riot, change detection (`compare_snapshots.py`: records, file SHA-256, openFDA export dates) against the previous weekly folder or the release snapshot `work/out-2026-11-04` | `work/weekly-YYYY-MM-DD/REPORT.md`, `monitor/weekly/YYYY-MM-DD.md` |
 | day 3 of the month 02:20 | `monthly_refresh.sh` | full refresh into `work/out-YYYY-MM-DD` (`snapshot_refresh.sh`: every source's own fetch + transform, MAUDE scrub and leak check, derived views), the 510(k) predicate and HUD designation transforms, then `fulltest.sh` (fallback files, tdb2.xloader into `work/tdb-YYYY-MM-DD`, query batteries 1-7) and a release-candidate report | `monitor/monthly/YYYY-MM-DD.md`, `work/fulltest-YYYY-MM-DD/RC_REPORT.md` |
-| every 30 min, 00:00-08:59 and 12:00-23:59 | `k510_crawl_watch.sh` | status of the 510(k) summary PDF crawl with a disk projection; when the crawl has completed, starts `k510_pred_finalize.sh final` once | `monitor/k510_crawl_status.md`, `monitor/k510_predicates_finalize.md` |
+| every 30 min, 00:00-08:59 and 12:00-23:59 | `k510_crawl_watch.sh` | status of the 510(k) summary PDF crawl with a disk projection; when the crawl has completed, starts `k510_pred_finalize.sh first` once (OCR backlog), then writes `monitor/k510_ocr_needed.md` with the command for the PI's PC (bulk OCR on Star, then `final`) | `monitor/k510_crawl_status.md`, `monitor/k510_predicates_finalize-first.md`, `monitor/k510_ocr_needed.md`, `monitor/k510_predicates_finalize.md` |
 
 The four older entries (Monday 05:30 recall weekly, 06:30 health check, 07:15 report publish, hourly :17 lakeFS
 release watcher) are kept unchanged; `install_cron.sh` replaces only lines tagged `# mdkg-schedule:` and saves
@@ -60,22 +60,52 @@ watcher: status only). First dry runs: November 15, 2026 (daily, weekly, monthly
   `cd /srv/medical-device-kg/work/v007 && nohup setsid nice -n 10 ionice -c2 -n7 python3 -I
   scripts/schedule/src_run_pdf.py k510_predicates fetch /srv/medical-device-kg/work/out-2026-11-04 >>
   /srv/medical-device-kg/logs/v007e-k510-crawl.log 2>&1 &`
-- Finalize: `scripts/schedule/k510_pred_finalize.sh [final|test|auto]` (started by the watcher; by hand with
+- Finalize: `scripts/schedule/k510_pred_finalize.sh [first|final|test|auto]` (by hand with
   `scripts/v007e_pred_finalize.sh` through `run_remote.ps1`): transform -> riot -> self-tests ->
   `structure_lint.sh` -> `query_contract.py` -> scratch TDB2 link test in `work/tmp-v007e` -> (final, all
   checks passed) `RELEASE_INPUTS.txt` and `UPLOAD_PLAN.md` via `work/v007e/release_add.py` (backups first)
-  -> summary. A failed final run writes `monitor/k510_finalize.failed`; delete it after the fix to let the
-  watcher retry.
-- Image-only PDFs are listed in `k510_predicates.ocr_backlog.tsv` (and `hud_designations.ocr_backlog.tsv`)
-  for OCR on Star HPC; no OCR engine is installed on the VM.
+  -> summary. `first` does the same without touching the release list or the upload plan. A failed final
+  run writes `monitor/k510_finalize.failed`; delete it after the fix to let the watcher retry.
+
+## OCR of image-only PDFs (Star HPC; PI approval November 16, 2026)
+
+No OCR engine is installed on the VM. Image-only PDFs (fewer than 100 non-space characters from pdftotext)
+are OCR'd on Star HPC (`ocrmypdf --force-ocr`, tesseract, English; project space
+`/fs1/projects/device_design_knowledge`, account `device_design_knowledge`, CPU only, no node pinned, no GPU)
+through the PI's PC, which holds the Star key: `scripts\star\ocr_batch.sh` (WSL; VM -> PC -> Star -> PC -> VM;
+originals stay on the VM). The OCR text lands in `work/ocr-<batch>/out/txt/` on the VM.
+
+- The transforms (`k510_predicates.py`, `hud_designations.py`; `text_of()`) read an image-only PDF from
+  `<stem>.txt` under the OCR batch folders in `MDKG_OCR_DIR` (":"-separated, wildcards allowed; `common.sh`
+  sets `work/ocr-*` unless it is set; `src_run_pdf.py --ocr-dir` overrides). Results from OCR text carry
+  `ex:extractionMethod "ocrmypdf/tesseract+regex v1"` and one confidence level less (high -> medium,
+  medium -> low); results from text layers are unchanged. `*.ocr_backlog.tsv` lists the PDFs still without
+  usable text after OCR; `*.links.tsv` / `*.rows.tsv` have an `extraction_method` column.
+- After the 510(k) crawl (automatic up to step 2):
+  1. the watcher starts `k510_pred_finalize.sh first`: full transform and checks with the OCR text collected
+     so far, writes `work/out-2026-11-04/k510_predicates.ocr_backlog.tsv` and `monitor/k510_finalize_first.done`;
+  2. the watcher writes `monitor/k510_ocr_needed.md` (backlog count and size, Star estimate, the command) and
+     raises one alert; cron on the VM cannot drive the WSL relay, so the next step runs on the PI's PC;
+  3. on the PC (PowerShell, outside 09:00-12:00):
+     `& 'A:\Big Data\Knowledge Graphs\medical-device-kg\scripts\star\post_crawl_ocr.ps1' -Batch <yyyy-mm-dd>-k510`
+     runs `ocr_batch.sh` mklist -> stage -> submit (array of 100 PDFs per task, 8 CPUs / 16G each, at most
+     4 at once = the account cap; about 4 min per task, inside QOS normal's 1 h) -> wait (polls every 5 min)
+     -> collect (OCR text and logs; `-WithPdf` also brings the OCR'd PDFs) -> clean (PC relay copies) ->
+     `k510_pred_finalize.sh final` on the VM with `MDKG_OCR_DIR=work/ocr-*`. Re-running with the same
+     `-Batch` resumes; `-Step <name>` runs one step.
+  4. `final` checks everything again and registers `k510_predicates.ttl` in `RELEASE_INPUTS.txt` /
+     `UPLOAD_PLAN.md`; it removes `monitor/k510_ocr_needed.md`. Nothing is uploaded, merged or tagged.
+  To finish without more OCR: `bash scripts/schedule/k510_pred_finalize.sh final` on the VM.
+- The Star working copies (`ocr/batches/<batch>/`) have no backup and can be deleted once collected.
 
 ## Files
 
 - `monitor/latest.md` newest daily report; `monitor/alerts.log` one line per alert (time, job, message).
-- `monitor/k510_crawl_status.md`, `monitor/k510_predicates_finalize.md` (`-test.md` for test runs).
+- `monitor/k510_crawl_status.md`, `monitor/k510_predicates_finalize.md` (`-test.md` for test runs, `-first.md`
+  for the first pass), `monitor/k510_finalize_first.done`, `monitor/k510_ocr_needed.md`.
 - `monitor/retention_candidates.md`, `monitor/radiation_corrective_actions.tsv`.
 - Logs: `logs/schedule-daily.log`, `schedule-weekly.log`, `schedule-monthly.log`, `schedule-k510-watch.log`,
-  `k510-finalize.log`.
+  `k510-finalize-first.log`, `k510-finalize.log`.
 
 To stop the schedule: `crontab -e` and delete the lines tagged `# mdkg-schedule:` (or restore a
 `monitor/crontab.bak-*` file with `crontab <file>`).

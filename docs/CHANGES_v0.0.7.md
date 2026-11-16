@@ -281,9 +281,9 @@ devices.
   53,931 triples; riot, self-tests, `structure_lint.sh`, `query_contract.py` OK; scratch TDB2 with `k510`, `pma`, `denovo` and the
   `reference_fallback` files: every link resolves to a typed, labelled node (numbers missing from FDA's data reach labelled fallback nodes), 0 nodes with two labels,
   provenance on every link node, every annotation asserted.
-- `scripts/schedule/k510_crawl_watch.sh` (cron) starts `scripts/schedule/k510_pred_finalize.sh final` when the crawl completes: the same
+- `scripts/schedule/k510_crawl_watch.sh` (cron) starts `scripts/schedule/k510_pred_finalize.sh` when the crawl completes: the same
   checks on the full set, then `RELEASE_INPUTS.txt` and `UPLOAD_PLAN.md` (ADD `k510_predicates.ttl`, backups first) and
-  `monitor/k510_predicates_finalize.md`.
+  `monitor/k510_predicates_finalize.md`. Since November 16 in two passes with OCR on Star in between (see the OCR section below).
 
 **HUD designations** (`pipeline/sources/hud_designations.py`, new file `hud_designations.ttl`). FDA publishes no list (see November 11),
 but each HDE's Summary of Safety and Probable Benefit states the HUD designation number and date. For the 87 original HDEs in
@@ -308,12 +308,52 @@ monthly jobs do not start while the 510(k) PDF crawl runs. Installed in the cron
 first dry runs the same day (the monthly refresh is deferred for disk until older snapshots are released: it needs about 390 GB plus the
 reserve, 238 GB were free).
 
+## OCR of image-only 510(k) and HDE PDFs on Star HPC (November 16, 2026; PI approval)
+
+Not uploaded, merged or tagged. Scanned PDFs without a text layer were the remaining hole in both PDF sources; the build VM has no OCR
+engine, so the OCR runs on Hofstra's Star HPC (project space `device_design_knowledge`, conda-forge environment with ocrmypdf and
+tesseract, CPU only, no node pinned, no GPU) and only the text comes back to the VM. Originals stay on the VM; Star holds working copies.
+
+- **First batch** (Star job 121689, one task, 8 CPUs): the 13 image-only HDE PDFs and the 45 image-only 510(k) summaries of the crawl
+  test, `ocrmypdf --force-ocr` (many scans carry a stamp-only text layer that `--skip-text` would keep). 58 of 58 OCR'd; 2.4 s per
+  510(k) PDF (4.1 pages on average) and 6.3 s per HDE PDF. Results in `work/ocr-2026-11/out/` on the VM.
+- **Fallback in the transforms** (`k510_predicates.text_of()`, used by both modules): when pdftotext gives fewer than 100 non-space
+  characters, the PDF is read from `<stem>.txt` in the OCR batch folders named by `MDKG_OCR_DIR` (":"-separated, wildcards allowed;
+  the scheduled jobs default to `work/ocr-*`) or the transform's `ocr_dirs` argument (`src_run_pdf.py --ocr-dir`); a later folder wins,
+  OCR text under 100 characters is ignored. Results read from OCR text carry `ex:extractionMethod "ocrmypdf/tesseract+regex v1"` and
+  one confidence level less than the same reading from a text layer (high -> medium, medium -> low, low stays low), because OCR
+  misreads digits; a HUD designation node counts as OCR-derived when any of its values (number, date, indication) came from OCR text.
+  Results from text layers are unchanged (byte-identical blocks). `*.ocr_backlog.tsv` now lists only PDFs still without usable text
+  after OCR; `*.links.tsv` and `*.rows.tsv` gained an `extraction_method` column; the counts files report `text_pdfs_from_ocr`,
+  `links_by_method` (510(k)) and `read_from_ocr` (HUD). Self-tests cover the OCR lookup (both folder layouts, later folder wins, short
+  OCR text ignored, text layer preferred), the method and the confidence downgrade.
+- **HUD designations regenerated** with the first batch (`out-2026-11-04/hud_designations.ttl`; the previous files kept as
+  `hud_designations.*.pre-ocr`): 70 designations linked from 70 of 87 original HDEs (was 65), 53 with a designation number (was 51),
+  68 with a date (was 63), 48 with the short indication; 869 triples (was 811). The 7 OCR-derived nodes (H010005, H040005, H970004,
+  H970005, H980002, H980007, H990002; two of them gained a number, 03-0120 and 98-0027, from the scanned approval order) have
+  confidence "low"; the other 63 nodes are unchanged. No HDE PDF is left without text. riot OK; scratch TDB2 with `hde.ttl`: 70 links,
+  0 untyped, 0 nodes with two labels, provenance complete. `RELEASE_INPUTS.txt` and `UPLOAD_PLAN.md` updated (72,385 bytes; backups
+  `*.pre-ocr-hud`).
+- **510(k) OCR subset** (the 45 image-only summaries, scratch only): 44 read from OCR text, 1 still without text; 17 summaries with
+  links, 25 links (14 medium, 11 low after the downgrade; 9 summaries with a medium-confidence predicate), all targets resolve in a
+  scratch TDB2 store with `k510`, `pma`, `denovo` and the `reference_fallback` files (3 labelled fallback nodes), 0 problems.
+- **After the crawl** (`scripts/schedule/`): the watcher starts `k510_pred_finalize.sh first` (full transform and checks, release list
+  untouched) to write the OCR backlog, then `monitor/k510_ocr_needed.md` with the backlog, a Star estimate and the PC command
+  (`scripts\star\post_crawl_ocr.ps1`, which drives `ocr_batch.sh` mklist -> stage -> submit -> wait -> collect -> clean and then starts
+  `k510_pred_finalize.sh final` with `MDKG_OCR_DIR`); cron on the VM cannot drive the WSL relay through the PI's PC. With an empty
+  backlog the watcher starts `final` itself. See `docs/OPERATIONS.md`.
+- **Backlog estimate** (November 16, 58,700 of 92,859 PDFs crawled, newest first, down to 2007): pdftotext on up to 40 PDFs per decision
+  year found every summary from 1995-1999 image-only (36 of 36), 4 of 7 from 2001, 0 of 39 from 2002-2006 and 15 of 800 (about 2%) from
+  2007-2026. Weighted by the summaries listed per year: about 17,600 image-only summaries (roughly 16,000-21,000; the earlier random
+  sample of 200 gave 22.5%, about 20,900), nearly all from before 2002. On Star: about 176 array tasks of 100 PDFs at 2.4 s per PDF,
+  4 at once, about 3 hours of run time plus queue waits, and about 10-15 GB through the PC relay.
+
 ## Remaining gaps
 
 | Gap | Reason |
 |---|---|
-| Humanitarian Use Device (HUD) designations | Closed November 15, 2026 for 65 of 87 original HDEs: designation number and date read from the HDE summaries (`hud_designations.ttl`; see above). FDA still publishes no list; designations that never led to an approved HDE are not covered, and 22 HDEs have no readable summary or no designation fields (13 PDFs listed for OCR). |
-| 510(k) predicate devices | Added November 15, 2026 from the summary PDFs (`k510_predicates.ttl`, after the crawl completes); image-only summaries (mostly before 2005) are listed for OCR on Star HPC. |
+| Humanitarian Use Device (HUD) designations | Closed November 15, 2026 for 65 of 87 original HDEs, 70 since the OCR of November 16: designation number and date read from the HDE summaries and approval orders (`hud_designations.ttl`; see above). FDA still publishes no list; designations that never led to an approved HDE are not covered, and 17 HDEs have no linked document or no designation fields. |
+| 510(k) predicate devices | Added November 15, 2026 from the summary PDFs (`k510_predicates.ttl`, after the crawl completes); image-only summaries (about 17,600, nearly all before 2002) are OCR'd on Star HPC before the final build (November 16 procedure; links from OCR text one confidence level lower). |
 | Radiation-emitting product corrective actions (`rh_res.cfm`) | Every search still returns HTTP 503 (retried November 11, 2026, after FDA support reported it working on October 20; the form page loads, every search variant gets AkamaiNetStorage's "currently unavailable" page). The derived view (`rh_actions_derived.ttl`) stands in. |
 | Warning letters May 2019 to 2020 | Closed November 11, 2026: 65 letters in `warning_letters_archive.ttl` (letter pages found through FDA's Archive-It index; see above). |
 | Warning letters before 2005 | Closed November 11, 2026 for November 1996 - December 2004: 2,676 letters in `warning_letters_archive.ttl` (FOI reading-room month index on web.archive.org; see above). Letters before November 1996 are on no index found. |
