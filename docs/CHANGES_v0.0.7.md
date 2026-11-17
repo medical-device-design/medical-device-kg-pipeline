@@ -348,6 +348,38 @@ tesseract, CPU only, no node pinned, no GPU) and only the text comes back to the
   sample of 200 gave 22.5%, about 20,900), nearly all from before 2002. On Star: about 176 array tasks of 100 PDFs at 2.4 s per PDF,
   4 at once, about 3 hours of run time plus queue waits, and about 10-15 GB through the PC relay.
 
+## Verification of the 510(k) predicate links and HUD designations; upload to develop (November 17, 2026; PI approval)
+
+The PI approved adding `k510_predicates.ttl` (final build of November 17: 169,961 links from 92,859 summary PDFs, 18,583 of them
+read from OCR text), `hud_designations.ttl` (70 designations) and the new `ontology.ttl` terms to lakeFS `develop` on condition
+that they are first queried and verified. Not merged to main, not tagged.
+
+- **Ontology**: against the develop copy, 65 triples added and none removed (new terms only).
+- **Test load** into the v007d store (`tdb2.tdbloader`, 601 s): 2,395,470 + 869 + 2,340 triples parsed; the store grew from
+  1,525,119,039 to 1,527,515,443 distinct triples (+2,396,404: both files entirely new, plus the 65 ontology additions).
+- **Battery 9** (15 checks, `fulltest-v007d/battery9_report.md`), all pass: the known chains K192386 -> K162759 -> K080949 and
+  K080949 -> K061711, K022995, K012997, K033523 (K182010 cites K080949 as a reference device, as its summary does); every link
+  child and target typed (K510Record, PMARecord or DeNovoRecord) and labelled; 1,420 fallback targets for numbers not in FDA data,
+  each with one label; counts by kind, confidence and method equal to the finalize summary (predicate 95,938 high, 31,233 medium,
+  29,074 low; reference 13,177 / 475 / 64; 20,187 OCR-derived); 0 self-links; one label and full provenance (sourceUrl,
+  retrievedAt, sourceDataset) on every link node and HUD designation; 0 e-mail addresses in the new literals. HUD: 70 designations,
+  each linked from exactly one original HDE, no HDE with two; every dated designation (68) precedes the HDE's receipt and decision.
+- **Temporal check**: for 166,916 links between two 510(k) records, the cited device was decided first in 99.65%, the same day in
+  195 cases and later in 386 (0.23%; 0.05% at high confidence, 0.95% at low; 0.12% from text layers, 1.1% from OCR text). The later
+  ones are predicates still under review when the summary was written (168), numbers that did not yet exist - typos or misreads,
+  mostly low-confidence "elsewhere in the summary" readings (91), OCR forms such as "KI 60666" normalised to an impossible number
+  (87) and near-copies of the citing record's own number (39). Characteristics of the PDFs and of the reading, carried by the
+  confidence levels; filter on high or medium confidence, or on decision dates, for strict lineage.
+- **Product-code agreement** of citing and cited 510(k): 73% same code at high confidence (95% same code or review panel), 65%
+  medium, 53% low; reference devices 56% (93%).
+- **Saved queries** (`docs/queries/`, pass `query_contract.py` and `qparse`): `k510-predicate-lineage.rq` (two levels with
+  confidence; K162759 -> K080949 -> 4 predicates), `k510-devices-citing-a-predicate.rq` (K080949: K162759 as predicate, K182010 as
+  reference), `k510-predicate-recalls-by-product-code.rq` (predicates of a product code whose own 510(k) has recalls; KGN: 12
+  predicates, e.g. K152721 Cytal Wound Matrix with 5 Class II recalls) and `hde-hud-designations.rq` (70 HDEs).
+- **Upload** (guarded: exactly these 3 names, no `event_text*` or `*.pre-*` source): `lakectl fs stat` size and checksum equal to
+  the local MD5 for all three, `lakectl diff` 2 added + 1 changed, commit `3cbf0c93f896` on develop (metadata version=v0.0.7);
+  develop now holds 79 data files, 105,984,048,112 bytes; main unchanged (`b0479eaf7c20`).
+
 ## Remaining gaps
 
 | Gap | Reason |
