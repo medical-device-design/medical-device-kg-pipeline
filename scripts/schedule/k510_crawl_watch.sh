@@ -143,6 +143,6 @@ case "$LAST" in
     MDKG_WT=$WT nohup setsid nice -n 10 bash $HERE/k510_pred_finalize.sh first > $LD/k510-finalize-first.log 2>&1 < /dev/null &
     ;;
   *)
-    once stopped "510(k) PDF crawl is not running and did not complete: ${LAST:-no fetch summary line in $CL}. Resume with the command in docs/OPERATIONS.md (files present are not requested again).\"
+    once stopped "510(k) PDF crawl is not running and did not complete: ${LAST:-no fetch summary line in $CL}. Resume with the command in docs/OPERATIONS.md (files present are not requested again)."
     ;;
 esac
