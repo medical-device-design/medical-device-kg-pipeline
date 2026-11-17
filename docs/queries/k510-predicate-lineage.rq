@@ -1,0 +1,25 @@
+#+ summary: Predicate lineage of a 510(k), two levels - the predicate devices its 510(k) summary names and their own predicates, with extraction confidence and method
+#+ tags:
+#+   - medical-device-kg
+
+# Change the K number in VALUES. Links are read from FDA 510(k) summary PDFs; each ex:PredicateDeviceLink
+# node carries the confidence (high: Predicate Device(s) section; medium: a substantial-equivalence or
+# predicate passage; low: elsewhere in the summary), the method (pdftotext or OCR, one level lower) and the
+# source PDF. notInFDAData = true: the summary names a number that FDA's 510(k)/PMA/De Novo data does not hold.
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?kNumber ?level ?citing ?predicate ?predicateName ?predicateDecisionDate ?predicateProductCode ?confidence ?extractionMethod ?notInFDAData WHERE {
+  VALUES ?kNumber { "K162759" }
+  ?k a ex:K510Record ; ex:kNumber ?kNumber .
+  { ?k ex:predicateDevice ?predicate . BIND(1 AS ?level) BIND(?k AS ?citing) }
+  UNION
+  { ?k ex:predicateDevice ?citing . ?citing ex:predicateDevice ?predicate . BIND(2 AS ?level) }
+  ?link a ex:PredicateDeviceLink ; rdf:subject ?citing ; rdf:object ?predicate ;
+        ex:confidence ?confidence ; ex:extractionMethod ?extractionMethod .
+  OPTIONAL { ?predicate rdfs:label ?predicateName }
+  OPTIONAL { ?predicate ex:decisionDate ?predicateDecisionDate }
+  OPTIONAL { ?predicate ex:productCode ?predicateProductCode }
+  BIND(EXISTS { ?predicate ex:dataQualityNote ?note } AS ?notInFDAData)
+}
+ORDER BY ?level ?citing ?predicate

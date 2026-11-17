@@ -1,0 +1,24 @@
+#+ summary: 510(k) devices whose 510(k) summary cites a given 510(k) as a predicate or reference device, newest first, with extraction confidence
+#+ tags:
+#+   - medical-device-kg
+
+# Change the K number in VALUES. ex:predicateDevice and ex:referenceDevice are read from the citing
+# device's 510(k) summary PDF; the link node (ex:PredicateDeviceLink / ex:ReferenceDeviceLink) carries
+# the confidence, the extraction method and the source PDF (ex:sourceUrl).
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT ?citedKNumber ?role ?kNumber ?deviceName ?applicant ?decisionDate ?productCode ?confidence ?extractionMethod ?summaryPdf WHERE {
+  VALUES ?citedKNumber { "K080949" }
+  VALUES (?prop ?linkClass ?role) { (ex:predicateDevice ex:PredicateDeviceLink "predicate")
+                                    (ex:referenceDevice ex:ReferenceDeviceLink "reference") }
+  ?p a ex:K510Record ; ex:kNumber ?citedKNumber .
+  ?k ?prop ?p ; ex:kNumber ?kNumber .
+  ?link a ?linkClass ; rdf:subject ?k ; rdf:object ?p ;
+        ex:confidence ?confidence ; ex:extractionMethod ?extractionMethod .
+  OPTIONAL { ?link ex:sourceUrl ?summaryPdf }
+  OPTIONAL { ?k ex:deviceName ?deviceName }
+  OPTIONAL { ?k ex:applicant ?applicant }
+  OPTIONAL { ?k ex:decisionDate ?decisionDate }
+  OPTIONAL { ?k ex:productCode ?productCode }
+}
+ORDER BY DESC(?decisionDate) ?kNumber

@@ -1,0 +1,21 @@
+#+ summary: Humanitarian Device Exemptions with their Humanitarian Use Device (HUD) designation number and date, read from the HDE summary or approval order
+#+ tags:
+#+   - medical-device-kg
+
+# ex:HUDDesignation nodes are read from FDA's HDE summaries of safety and probable benefit and approval
+# orders (original HDEs only); number, date or indication can be missing where the document does not
+# state them. Values read from OCR text of scanned PDFs carry confidence one level lower.
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+SELECT ?hdeNumber ?tradeName ?applicant ?hdeDecisionDate ?hudDesignationNumber ?designationDate ?designatedIndication ?confidence ?extractionMethod ?sourcePdf WHERE {
+  ?h a ex:HumanitarianDeviceExemption ; ex:hasHUDDesignation ?d ; ex:hdeNumber ?hdeNumber .
+  OPTIONAL { ?h ex:tradeName ?tradeName }
+  OPTIONAL { ?h ex:applicant ?applicant }
+  OPTIONAL { ?h ex:decisionDate ?hdeDecisionDate }
+  OPTIONAL { ?d ex:hudDesignationNumber ?hudDesignationNumber }
+  OPTIONAL { ?d ex:designationDate ?designationDate }
+  OPTIONAL { ?d ex:designatedIndication ?designatedIndication }
+  OPTIONAL { ?d ex:confidence ?confidence }
+  OPTIONAL { ?d ex:extractionMethod ?extractionMethod }
+  OPTIONAL { ?d ex:sourceUrl ?sourcePdf }
+}
+ORDER BY ?hdeNumber
