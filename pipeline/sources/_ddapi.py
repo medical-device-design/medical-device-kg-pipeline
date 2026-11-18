@@ -47,6 +47,9 @@ MINTERS (in iri.py; the names below are kept here as aliases for the dd_* module
                                             -> .../id/fda-compliance-action/warning_letter/729208/3002807798
     import_refusal('UPS-0443680-5/1/1')     -> .../id/import-refusal/ups_0443680_5_1_1
     import_refusal_charge('118')            -> .../id/import-refusal-charge/118
+
+firm_pairs() and the other literal helpers here use common.text_lit: e-mail addresses in FDA text are
+replaced by [EMAIL REMOVED] (PI decision 2026-11-17).
 """
 import json
 import os
@@ -362,25 +365,25 @@ def firm_pairs(r, name_key="LegalName", state_code_key="StateCode", state_name_k
     Returns (person: bool, fei or None, pairs)."""
     name = s(r.get(name_key))
     if is_person(name, strict) or fei_of(r.get("FEINumber")) in person_feis:
-        return True, None, [("ex:countryCode", common.lit(s(r.get("CountryCode")))),
-                            ("ex:country", common.lit(s(r.get("CountryName")))),
-                            ("ex:dataQualityNote", common.lit(PERSON_NOTE))]
+        return True, None, [("ex:countryCode", common.text_lit(s(r.get("CountryCode")))),
+                            ("ex:country", common.text_lit(s(r.get("CountryName")))),
+                            ("ex:dataQualityNote", common.text_lit(PERSON_NOTE))]
     fei = fei_of(r.get("FEINumber"))
     sc = s(r.get(state_code_key)) if state_code_key else None
     sn = s(r.get(state_name_key)) if state_name_key else None
     if state_code_key is None:                 # import refusals: one State column (code or name)
         sc, sn = (sn, None) if sn and len(sn) <= 3 else (None, sn)
-    pairs = [("ex:companyName", common.lit(common.norm_text(name))),
-             ("ex:feiNumber", common.lit(fei)),
+    pairs = [("ex:companyName", common.text_lit(common.norm_text(name))),
+             ("ex:feiNumber", common.text_lit(fei)),
              ("ex:hasManufacturer", f"<{iri.manufacturer(fei=fei)}>" if fei else None),
-             ("ex:address", common.lit(common.norm_address(r.get("AddressLine1"), r.get("AddressLine2")))),
-             ("ex:city", common.lit(s(r.get("City")))),
-             ("ex:state", common.lit(sc)),
-             ("ex:stateName", common.lit(sn)),
-             ("ex:postalCode", common.lit(s(r.get("ZipCode")))),
-             ("ex:countryCode", common.lit(s(r.get("CountryCode")))),
-             ("ex:country", common.lit(s(r.get("CountryName")))),
-             ("ex:firmProfileUrl", common.lit(s(r.get("FirmProfile"))))]
+             ("ex:address", common.text_lit(common.norm_address(r.get("AddressLine1"), r.get("AddressLine2")))),
+             ("ex:city", common.text_lit(s(r.get("City")))),
+             ("ex:state", common.text_lit(sc)),
+             ("ex:stateName", common.text_lit(sn)),
+             ("ex:postalCode", common.text_lit(s(r.get("ZipCode")))),
+             ("ex:countryCode", common.text_lit(s(r.get("CountryCode")))),
+             ("ex:country", common.text_lit(s(r.get("CountryName")))),
+             ("ex:firmProfileUrl", common.text_lit(s(r.get("FirmProfile"))))]
     return False, fei, pairs
 
 

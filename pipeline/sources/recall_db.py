@@ -18,6 +18,10 @@ earlier, and carries four things the enforcement feed does not:
 Its product_res_number ("Z-0001-04") is the same key as the enforcement feed's
 recall_number, so both sources land on the SAME iri.recall() node and enrich it.
 Product codes arrive padded ("IZL--"); they are cleaned before minting.
+
+E-mail addresses (FDA quotes firm contact addresses in action, product_description, ...) are
+replaced by [EMAIL REMOVED] in every string literal (common.text_lit / scrub.scrub_email; PI
+decision 2026-11-17). IRIs, firm names and all other text are unchanged.
 """
 import os
 import re
@@ -86,37 +90,38 @@ def transform(src, out, retrieved_at=None):
             of = r.get("openfda") or {}
             pairs = [
                 ("a", "ex:RecallRecord"),
-                ("rdfs:label", common.label(f"Recall {rn}", r.get("recalling_firm"))),
-                ("ex:recallNumber", common.lit(rn)),
-                ("ex:recallStatus", common.lit(r.get("recall_status"))),
+                ("rdfs:label", common.text_label(f"Recall {rn}", r.get("recalling_firm"))),
+                ("ex:recallNumber", common.text_lit(rn)),
+                ("ex:recallStatus", common.text_lit(r.get("recall_status"))),
                 # whitespace-normalized so the text matches the enforcement feed's copy
-                ("ex:reasonForRecall", common.lit(common.norm_text(r.get("reason_for_recall")))),
-                ("ex:rootCauseDescription", common.lit(r.get("root_cause_description"))),
-                ("ex:recallAction", common.lit(common.norm_text(r.get("action")))),
-                ("ex:recallingFirm", common.lit(common.norm_text(r.get("recalling_firm")))),
-                ("ex:productDescription", common.lit(common.norm_text(r.get("product_description")))),
-                ("ex:productQuantity", common.lit(r.get("product_quantity"))),
-                ("ex:distributionPattern", common.lit(r.get("distribution_pattern"))),
+                ("ex:reasonForRecall", common.text_lit(common.norm_text(r.get("reason_for_recall")))),
+                ("ex:rootCauseDescription", common.text_lit(r.get("root_cause_description"))),
+                ("ex:recallAction", common.text_lit(common.norm_text(r.get("action")))),
+                ("ex:recallingFirm", common.text_lit(common.norm_text(r.get("recalling_firm")))),
+                ("ex:productDescription", common.text_lit(common.norm_text(r.get("product_description")))),
+                ("ex:productQuantity", common.text_lit(r.get("product_quantity"))),
+                ("ex:distributionPattern", common.text_lit(r.get("distribution_pattern"))),
                 # same predicate as recalls.py so one query covers both sources
                 ("ex:recallInitiationDate", common.date_lit(r.get("event_date_initiated"))),
                 ("ex:eventDatePosted", common.date_lit(r.get("event_date_posted"))),
                 ("ex:terminationDate", common.date_lit(r.get("event_date_terminated"))),
-                ("ex:firmFEINumber", common.lit(r.get("firm_fei_number"))),
-                ("ex:cfresId", common.lit(r.get("cfres_id"))),
-                ("ex:city", common.lit(r.get("city"))),
-                ("ex:state", common.lit(r.get("state"))),
-                ("ex:postalCode", common.lit(r.get("postal_code"))),
-                ("ex:country", common.lit(r.get("country"))),
-                ("ex:address", common.lit(common.norm_address(r.get("address_1"), r.get("address_2")))),
+                ("ex:firmFEINumber", common.text_lit(r.get("firm_fei_number"))),
+                ("ex:cfresId", common.text_lit(r.get("cfres_id"))),
+                ("ex:city", common.text_lit(r.get("city"))),
+                ("ex:state", common.text_lit(r.get("state"))),
+                ("ex:postalCode", common.text_lit(r.get("postal_code"))),
+                ("ex:country", common.text_lit(r.get("country"))),
+                ("ex:address", common.text_lit(common.norm_address(r.get("address_1"), r.get("address_2")))),
                 ("ex:eventDateCreated", common.date_lit(r.get("event_date_created"))),
                 # additional_info_contact names a person -> deliberately not ingested
             ]
             pairs += common.implausible_year_pairs(r.get("event_date_initiated"), "recall initiation date")
             # code_info (lots/serials): kept in full unless CODE_INFO_CAP is set
-            pairs += common.capped_pairs("ex:codeInfo", common.norm_text(r.get("code_info")), CODE_INFO_CAP)
+            pairs += common.capped_pairs("ex:codeInfo", common.no_email(common.norm_text(r.get("code_info"))),
+                                         CODE_INFO_CAP)
             # barcode path: GS1 device identifiers FDA quotes in the lot text -> UDI identifier nodes
             for di in common.gs1_dis(r.get("code_info")):
-                pairs.append(("ex:quotedDeviceIdentifier", common.lit(di)))
+                pairs.append(("ex:quotedDeviceIdentifier", common.text_lit(di)))
                 pairs.append(("ex:mentionsDeviceIdentifier", f"<{iri.udi_identifier('GS1', di)}>"))
             pairs += distribution_pairs(r.get("distribution_pattern"))
 
@@ -153,10 +158,10 @@ def transform(src, out, retrieved_at=None):
             started, status = events[ev]
             w.block(iri.recall_event(ev), [
                 ("a", "ex:RecallEvent"),
-                ("rdfs:label", common.lit(f"Recall event {ev}")),
-                ("ex:recallEventNumber", common.lit(ev)),
+                ("rdfs:label", common.text_lit(f"Recall event {ev}")),
+                ("ex:recallEventNumber", common.text_lit(ev)),
                 ("ex:recallInitiationDate", common.date_lit(started)),
-                ("ex:recallStatus", common.lit(status)),
+                ("ex:recallStatus", common.text_lit(status)),
             ])
         # Name node -> FEI node with an exact, reified identity mapping
         for nf in sorted(firms):
@@ -166,19 +171,19 @@ def transform(src, out, retrieved_at=None):
                 subj, obj = iri.firm_name(nf), iri.manufacturer(fei=fei)
                 w.block(iri.identity_mapping(subj, obj, "shared-fei"), [
                     ("a", "ex:IdentityMapping"),
-                    ("rdfs:label", common.lit(f"{nf} = FEI {fei}")),
+                    ("rdfs:label", common.text_lit(f"{nf} = FEI {fei}")),
                     ("ex:mappingSubject", f"<{subj}>"),
                     ("ex:mappingObject", f"<{obj}>"),
-                    ("ex:mappingMethod", common.lit("shared-fei")),
+                    ("ex:mappingMethod", common.text_lit("shared-fei")),
                     ("ex:mappingConfidence", common.float_lit(1.0)),
-                    ("ex:mappingStatus", common.lit("accepted")),
-                    ("ex:mappingEvidence", common.lit(f"FEI {fei} on FDA recall record")),
+                    ("ex:mappingStatus", common.text_lit("accepted")),
+                    ("ex:mappingEvidence", common.text_lit(f"FEI {fei} on FDA recall record")),
                     ("ex:mappingDate", common.date_lit(retrieved_at)),
                 ])
         # minimal typed hub nodes, so every product-code link reaches a node that
         # carries its code (classification adds the name and class where FDA lists it)
         for pc in sorted(hub_codes):
-            w.block(iri.product_code(pc), [("a", "ex:ProductCode"), ("ex:productCode", common.lit(pc))])
+            w.block(iri.product_code(pc), [("a", "ex:ProductCode"), ("ex:productCode", common.text_lit(pc))])
 
     st.triples = w.triples
     return st
@@ -204,7 +209,8 @@ def _selftest():
             "recalling_firm": "Sedecal USA, Inc", "city": "Arlington Heights",
             "state": "IL", "postal_code": "60004-1551",
             "reason_for_recall": "Non-compliance with performance standard.",
-            "root_cause_description": "Other", "action": "Important Safety Notice sent.",
+            "root_cause_description": "Other",
+            "action": "Important Safety Notice sent. Questions: recall.help@sedecal-usa.example.com",
             "product_quantity": "1 unit", "distribution_pattern": "Vermont", "openfda": {}},
         {"reason_for_recall": "no res number"},
     ]}
@@ -233,6 +239,9 @@ def _selftest():
     assert 'rdfs:label "Recall event 27549"' in text
     assert f"<{iri.product_code('IZL')}>\n    a ex:ProductCode" in text   # hub stub, no dangling link
     assert text.count("a ex:FirmName") == 1 and "skos:altLabel" in text
+    # e-mail addresses in FDA text -> [EMAIL REMOVED]; everything else in the value is kept
+    assert 'ex:recallAction "Important Safety Notice sent. Questions: [EMAIL REMOVED]"' in text
+    assert "@" not in text.replace("@prefix", "")
     print(f"recall_db.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
 

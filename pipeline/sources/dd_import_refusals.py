@@ -39,6 +39,9 @@ here (the strict name-shape test is reserved for Bioresearch Monitoring, see _dd
 
 Minters (iri.py, aliased in _ddapi): import_refusal(shipment_id) -> .../id/import-refusal/<slug(shipment id)>;
                               import_refusal_charge(asc_id) -> .../id/import-refusal-charge/<asc_id>
+
+E-mail addresses (one firm is listed under an e-mail address as its name) are replaced by [EMAIL REMOVED]
+in every literal, labels included (common.text_lit / text_label; PI decision 2026-11-17). IRIs unchanged.
 """
 import csv
 import io
@@ -152,21 +155,21 @@ def transform(src, out, retrieved_at=None, classification_ttl=None):
             name = None if person else common.norm_text(r0.get("FirmName"))
             date = dd.s(r0.get("RefusalDate"))
             pairs = [("a", "ex:ImportRefusal"),
-                     ("rdfs:label", common.label(f"Import refusal {sid}", name, date)),
-                     ("ex:shipmentId", common.lit(sid)),
+                     ("rdfs:label", common.text_label(f"Import refusal {sid}", name, date)),
+                     ("ex:shipmentId", common.text_lit(sid)),
                      ("ex:refusalDate", common.date_lit(date))]
             seen = set()
             for r in rows:
-                for f, pred, fn in (("ProductCode", "ex:importProductCode", common.lit),
-                                    ("ProductCodeDescription", "ex:importProductCodeDescription", common.lit),
-                                    ("IndustryCode", "ex:industryCode", common.lit),
-                                    ("IndustryCodeDescription", "ex:industryCodeDescription", common.lit),
-                                    ("ProductCategory", "ex:productCategory", common.lit),
-                                    ("DistrictCode", "ex:importDivisionCode", common.lit),
-                                    ("DistrictDescription", "ex:importDivision", common.lit),
+                for f, pred, fn in (("ProductCode", "ex:importProductCode", common.text_lit),
+                                    ("ProductCodeDescription", "ex:importProductCodeDescription", common.text_lit),
+                                    ("IndustryCode", "ex:industryCode", common.text_lit),
+                                    ("IndustryCodeDescription", "ex:industryCodeDescription", common.text_lit),
+                                    ("ProductCategory", "ex:productCategory", common.text_lit),
+                                    ("DistrictCode", "ex:importDivisionCode", common.text_lit),
+                                    ("DistrictDescription", "ex:importDivision", common.text_lit),
                                     ("FDASampleAnalysis", "ex:fdaSampleAnalysis", lambda v: common.bool_lit(dd.yes_no(v))),
                                     ("PrivateLabAnalysis", "ex:privateLabAnalysis", lambda v: common.bool_lit(dd.yes_no(v))),
-                                    ("RefusalCharges", "ex:refusalChargeCodes", common.lit)):
+                                    ("RefusalCharges", "ex:refusalChargeCodes", common.text_lit)):
                     v = dd.s(r.get(f))
                     o = fn(v) if v else None
                     if o and (pred, o) not in seen:
@@ -204,19 +207,19 @@ def transform(src, out, retrieved_at=None, classification_ttl=None):
             c = charges[k]
             w.block(dd.import_refusal_charge(k), [
                 ("a", "ex:ImportRefusalCharge"),
-                ("rdfs:label", common.label(f"Import refusal charge {k}", c.get("CHRG_CODE"))),
-                ("ex:chargeId", common.lit(k)),
-                ("ex:chargeCode", common.lit(common.norm_text(c.get("CHRG_CODE")))),
-                ("ex:chargeStatement", common.lit(common.norm_text(c.get("CHRG_STMNT_TEXT")))),
-                ("ex:actSectionName", common.lit(common.norm_text(c.get("SCTN_NAME")))),
+                ("rdfs:label", common.text_label(f"Import refusal charge {k}", c.get("CHRG_CODE"))),
+                ("ex:chargeId", common.text_lit(k)),
+                ("ex:chargeCode", common.text_lit(common.norm_text(c.get("CHRG_CODE")))),
+                ("ex:chargeStatement", common.text_lit(common.norm_text(c.get("CHRG_STMNT_TEXT")))),
+                ("ex:actSectionName", common.text_lit(common.norm_text(c.get("SCTN_NAME")))),
             ] + common.provenance(DATASET + "/charges", k, source_url=CHARGES_URL, retrieved_at=retrieved_at))
         for k in sorted(missing_charges, key=lambda x: (len(x), x)):      # cited but not in FDA's list
             w.block(dd.import_refusal_charge(k), [
-                ("a", "ex:ImportRefusalCharge"), ("rdfs:label", common.lit(f"Import refusal charge {k}")),
-                ("ex:chargeId", common.lit(k)),
-                ("ex:dataQualityNote", common.lit("charge id cited on refusals but absent from FDA's ACT_SECTION_CHARGES list"))])
+                ("a", "ex:ImportRefusalCharge"), ("rdfs:label", common.text_lit(f"Import refusal charge {k}")),
+                ("ex:chargeId", common.text_lit(k)),
+                ("ex:dataQualityNote", common.text_lit("charge id cited on refusals but absent from FDA's ACT_SECTION_CHARGES list"))])
         for pc in sorted(hub):
-            w.block(iri.product_code(pc), [("a", "ex:ProductCode"), ("ex:productCode", common.lit(pc))])
+            w.block(iri.product_code(pc), [("a", "ex:ProductCode"), ("ex:productCode", common.text_lit(pc))])
     counts["charge_ids_not_in_list"] = len(missing_charges)
     st.triples = w.triples
     counts.update(records=st.records, triples=st.triples, classification_ttl=str(classification_ttl)
@@ -266,6 +269,15 @@ _ROWS = [
      "ProductCodeDescription": "SYRINGE", "RefusalDate": "2020-01-02", "ShipmentID": "AAA-0000001-1/1/1",
      "FDASampleAnalysis": "Yes", "PrivateLabAnalysis": "No ", "RefusalCharges": "118",
      "FirmProfile": "https://datadashboard.fda.gov/oii/firmprofile.htm?FEIu=3009999999"},
+    # constructed: FDA lists one firm under an e-mail address as its name (2026-11-04 file) -> [EMAIL REMOVED]
+    {"FEINumber": "3011111111", "FirmName": "orders@parcel-firm.example.com.co", "AddressLine1": "Calle 1",
+     "AddressLine2": None, "City": "Bogota", "State": None, "ZipCode": None, "CountryCode": "CO",
+     "CountryName": "Colombia", "DistrictCode": "DNEI", "DistrictDescription": "Division of Northeast Imports",
+     "IndustryCode": "95", "IndustryCodeDescription": "Light", "ProductCategory": "Radiological Health",
+     "ProductCode": "95RFF", "ProductCodeDescription": "LASER WELDER, MATERIALS PROCESSING LASER PRODUCTS",
+     "RefusalDate": "2016-10-07", "ShipmentID": "ZZZ-0000002-2/1/1", "FDASampleAnalysis": "No ",
+     "PrivateLabAnalysis": "No ", "RefusalCharges": "476",
+     "FirmProfile": "https://datadashboard.fda.gov/oii/firmprofile.htm?FEIu=3011111111"},
 ]
 _CHARGES = ('﻿ASC_ID,CHRG_CODE,CHRG_STMNT_TEXT,SCTN_NAME\r\n'
             '118,NOT LISTED,"It appears the device is not included in a list required by Section 510(j), or a notice or '
@@ -283,13 +295,14 @@ def _selftest():
         (t / "pages").mkdir()
         (t / "pages" / "devices_s0000001.json").write_text(json.dumps({"result": [_ROWS[0], _ROWS[1], _ROWS[3]]}),
                                                            encoding="utf-8")
-        (t / "pages" / "radiological_s0000001.json").write_text(json.dumps({"result": [_ROWS[2]]}), encoding="utf-8")
+        (t / "pages" / "radiological_s0000001.json").write_text(json.dumps({"result": [_ROWS[2], _ROWS[4]]}),
+                                                               encoding="utf-8")
         (t / CHARGES_FILE).write_bytes(_CHARGES.encode("utf-8"))
         base.Manifest(source=NAME, dataset=DATASET, retrieved_at="2026-11-04", files=[]).write(t / "manifest.json")
         st = transform(t, t / "dd_import_refusals.ttl", classification_ttl={"HQY", "FMF"})
         ttl = (t / "dd_import_refusals.ttl").read_text(encoding="utf-8")
         counts = json.loads((t / "dd_import_refusals.counts.json").read_text(encoding="utf-8"))
-    assert st.records == 4, st
+    assert st.records == 5, st
     assert device_code("86HQY", {"HQY"}) == "HQY" and device_code("85NRC", {"HQY"}) is None
     assert device_code("80FMFA1", {"FMF"}) is None and device_code("16AGT64", {"AGT"}) is None
     b = ttl.split(f"<{dd.import_refusal('UPS-0443680-5/1/1')}>")[1].split("\n\n")[0]
@@ -310,7 +323,10 @@ def _selftest():
     assert f"<{iri.product_code('HQY')}>\n    a ex:ProductCode" in ttl
     for x in ("Public", "Elm Street", "Springfield", "62701", "3009999999"):
         assert x not in ttl, x
-    assert counts["product_code_linked"] == 1 and counts["product_code_letters_not_in_classification"] == 2
+    em = ttl.split(f"<{dd.import_refusal('ZZZ-0000002-2/1/1')}>")[1].split("\n\n")[0]
+    assert 'rdfs:label "Import refusal ZZZ-0000002-2/1/1: [EMAIL REMOVED]: 2016-10-07"' in em
+    assert 'ex:companyName "[EMAIL REMOVED]"' in em and "parcel-firm" not in ttl and 'ex:city "Bogota"' in em
+    assert counts["product_code_linked"] == 1 and counts["product_code_letters_not_in_classification"] == 3
     assert counts["product_code_shape_not_device"] == 1 and counts["person_withheld"] == 1
     print(f"dd_import_refusals.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
