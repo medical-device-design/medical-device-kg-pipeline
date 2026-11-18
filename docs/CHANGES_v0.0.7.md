@@ -380,6 +380,51 @@ that they are first queried and verified. Not merged to main, not tagged.
   the local MD5 for all three, `lakectl diff` 2 added + 1 changed, commit `3cbf0c93f896` on develop (metadata version=v0.0.7);
   develop now holds 79 data files, 105,984,048,112 bytes; main unchanged (`b0479eaf7c20`).
 
+## E-mail scrub of all FDA text (November 17, 2026; PI decisions)
+
+The PI decided that every e-mail address in an FDA text literal is replaced by `[EMAIL REMOVED]` (the MAUDE marker), in every
+source, not only MAUDE; firm names and every other part of a value are kept. `common.no_email` / `text_lit` / `text_label` pass
+FDA text through `scrub.scrub_email` in `cfr`, `recall_db`, `recalls`, `registrationlisting`, `udi`, `dd_import_refusals` and
+`_ddapi`. Not merged to main, not tagged.
+
+- **First pass (standard pattern)**: 24,730 addresses. `recall_db.ttl` 24,548 (`ex:recallAction` 24,491, `ex:productDescription` 51,
+  `ex:reasonForRecall` 3, `ex:distributionPattern` 3), `udi.ttl` 115 (`ex:deviceDescription` 105, `ex:specialConditions` 6,
+  `ex:brandName` 2, `rdfs:label` 2), `cfr.ttl` 55 (`ex:regulationText`), `recalls.ttl` 9, `dd_import_refusals.ttl` 2
+  (`ex:companyName` 1, `rdfs:label` 1), `registrationlisting.ttl` 1 (`ex:address`). The six files were regenerated from the
+  2026-11-04 downloads with the patched transforms; each is byte-identical to a literal-only post-processing of the previous file.
+- **Three names became `[EMAIL REMOVED]`** (accepted by the PI): two UDI brand names (`ex:brandName` and the matching `rdfs:label`)
+  and one import-refusal company name (`ex:companyName` and its `rdfs:label`) consist of an e-mail address. The nodes keep one label.
+- **Second pass (broken forms the standard pattern misses)**: `scrub_email` now also applies three rules (counted separately by
+  `scrub_email_rules`), each match reviewed by hand before replacing:
+  - `email_split`: an address split by a space or comma before the TLD (`X@OWENS-MINOR .COM`, `X@IMRIS. COM`, `X@LIVANOVA,COM`,
+    `X@STENCYCLE COM`), inside the domain (`X@ART HREX.COM`, `X@TENE THEALTH.COM`) or before the @ (`SUPPORT @VARIAN.COM`,
+    `X(@GETINGE.COM`). The domain must start with a letter and end in a known TLD; a 2-letter TLD that is also an English word
+    after ". " only in lower-case text; not when the domain is HOME... or the word before " @" is prose (`EMAIL FROM @X.COM`).
+  - `email_truncated`: an address cut off by a field limit (`X@INTUSURG`, `X.Y@BROADSPIRE`): local part of 2+ letters, letters-only
+    fragment, not HOME..., and e-mail wording (EMAIL, MAIL, CONTACT, SEND ...) in the 80 characters before it, a removed phone number
+    in the 40 before it, or a mailbox-like local part (FIRST.LAST, a role word such as SUPPORT / SERVICE / RECALL / REGULATORY, or a
+    name + 3 digits).
+  - `email_at_word`: `NAME(AT)DOMAIN.TLD`, `[AT]`, `(DOT)`; spelled out (`X AT Y DOT COM`) only with com / org / net / edu / gov.
+  - Kept (self-tests): product, lot and facility names such as `2008K@HOME`, `MERLIN@HOME`, `K@HOME`, `Well@Home`, `DEVICES@FDA`,
+    `ORG@NIZER`, `HEALTH@FITNESS`, `CT@MRI`, `LOT@UNK`, `M@10645`, `10@523722`; rates and thresholds (`@ 5 mg`, `8V@1MS. NO`,
+    `@1300`); handles (`@HOME`, `X HANDLE: @...`); `TIBIAL (AT) ARTERY`; message IDs (`<uuid>@HPP`) and system names (`DEV@COM`,
+    `ROOT@STEALTH`).
+- **Second-pass matches (202 addresses)**: `recall_db.ttl` 155 (`ex:recallAction`: split 96, truncated 59); MAUDE `event_02.ttl` 2
+  (truncated personal addresses in `ex:removalCorrectionNumber`), `event_05.ttl` 4 and `event_09.ttl` 1 (a truncated
+  regulatory-reporting mailbox in `ex:catalogNumber`); narratives `event_text_01` 1, `_02` 4, `_03` 22 (mostly service-repair
+  approvals quoting hospital staff addresses), `_04` 2, `_05` 1, `_06` 6 (incl. 2 `NAME(AT)DOMAIN`), `_08` 2; `medsun_text.ttl` 2
+  (`ex:manufacturerResponse`). The rules change nothing in any other release file (all 79 objects scanned; the candidates the
+  checks reject were listed and reviewed: product, lot, facility and system names only).
+- **Applied** as a literal-only post-processing (`tmp-es2/bin/es_litscrub2.py`); `recall_db.ttl` is byte-identical to its
+  regeneration from the 2026-11-04 download with the patched code. MAUDE files were not regenerated.
+- **Verified** for every changed file: same lines (line pairs differ only by address -> marker inside string literals), riot clean,
+  same triple counts (narratives still 59,637,673 triples), sorted N-Triples diff and one-to-one pairing for `recall_db.ttl` and
+  `medsun_text.ttl`, one label per node unchanged, 0 addresses left under any rule, release-check pattern 0, self-tests,
+  `structure_lint.sh` and `query_contract.py` pass. Previous files kept as `*.pre-emailscrub` / `*.pre-emailscrub2`.
+- **Upload** (guarded: exactly these 17 names, CHANGE only, no `event_text.ttl` / `event_text_scrubbed.ttl` / `*.pre-*` source;
+  each object read back and its MD5 compared): `lakectl diff` 17 changed, commit `3cba84be3485` on develop (metadata
+  version=v0.0.7); main unchanged (`b0479eaf7c20`).
+
 ## Remaining gaps
 
 | Gap | Reason |
