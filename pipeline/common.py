@@ -61,6 +61,34 @@ def lang_lit(value, lang="en"):
     return f'"{esc(s)}"@{lang}' if s else None
 
 
+def no_email(value):
+    """The value with every e-mail address replaced by [EMAIL REMOVED] (scrub.scrub_email, the
+    pattern used for MAUDE); None stays None. PI decision 2026-11-17: e-mail addresses are removed
+    from all FDA text literals in the release; firm names and every other part of a value are kept."""
+    if value is None:
+        return None
+    s = str(value)
+    if "@" not in s:
+        return value
+    import os
+    import sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:          # python3 -I pipeline/common.py runs without the script directory
+        sys.path.insert(0, here)
+    import scrub                      # pipeline/scrub.py (imported here: scrub does not need common)
+    return scrub.scrub_email(s)[0]
+
+
+def text_lit(value):
+    """lit() of no_email(value): the string literal for FDA text that may quote an e-mail address."""
+    return lit(no_email(value))
+
+
+def text_label(*parts, sep=": "):
+    """label() of the parts after no_email()."""
+    return label(*(no_email(p) for p in parts), sep=sep)
+
+
 def capped_pairs(pred, value, cap):
     """For very long free text (recall code_info lists thousands of serial numbers):
     emit the first `cap` characters, plus <pred>Truncated true and <pred>Length,
@@ -421,6 +449,17 @@ def _selftest():
     assert lit("") is None
     assert lit('a"b') == '"a\\"b"'
     assert lit("a\nb") == '"a\\nb"'
+    # --- e-mail addresses in FDA text (PI decision 2026-11-17) --------------
+    assert text_lit("Contact the firm at recall.help@acme-med.com or 555-0100.") == \
+        '"Contact the firm at [EMAIL REMOVED] or 555-0100."'
+    assert text_lit("QA@EXAMPLE.CO.UK; ops@example.org") == '"[EMAIL REMOVED]; [EMAIL REMOVED]"'
+    assert text_lit("ACME MEDICAL, INC.") == '"ACME MEDICAL, INC."'          # firm names kept
+    assert text_lit("2 @ 5 mg; @HOME transmitter; x@y") == '"2 @ 5 mg; @HOME transmitter; x@y"'  # not addresses
+    assert text_lit(None) is None and text_lit("  ") is None and no_email(None) is None
+    assert no_email(42) == 42 and text_lit('say "hi" to a@b.io') == '"say \\"hi\\" to [EMAIL REMOVED]"'
+    assert text_label("Import refusal X-1", "orders@4-72.com.co", "2020-01-02") == \
+        '"Import refusal X-1: [EMAIL REMOVED]: 2020-01-02"'
+    assert text_label("Recall Z-1", "Sedecal USA, Inc") == label("Recall Z-1", "Sedecal USA, Inc")
     # --- capped long text --------------------------------------------------
     assert capped_pairs("ex:codeInfo", "abc", 10) == [("ex:codeInfo", '"abc"')]
     cp = capped_pairs("ex:codeInfo", "x" * 25, 10)

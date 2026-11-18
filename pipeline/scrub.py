@@ -69,6 +69,12 @@ Added 2026-11-08:
                   rule above and of the release check's pattern), for
                   every MAUDE text literal (event.py structured fields
                   too, not only the narratives); scrub_text() starts with it
+Added 2026-11-17 (PI decision: e-mail addresses removed from all FDA text):
+  broken e-mail   scrub_email() also removes addresses split by a  -> [EMAIL REMOVED]
+                  space or comma ("X@Y .COM", "X@Y COM", "X @Y.COM"),
+                  cut off by a field limit ("X@INTUSURG") or written
+                  "X(AT)Y.Z" (rules email_split / email_truncated /
+                  email_at_word, see scrub_email_rules)
 Returns (clean_text, Counter of rule hits).
 """
 import collections
@@ -398,10 +404,9 @@ def scrub_text(text):
     hits = collections.Counter()
     if not text:
         return text, hits
-    if "@" in text:                               # e-mail first, so the whole address goes (see scrub_email)
-        text, k = scrub_email(text)
-        if k:
-            hits["email"] += k
+    text, k = scrub_email(text)                   # e-mail first, so the whole address goes (see scrub_email)
+    if k:
+        hits["email"] += k
     u = text.upper()
     for name, rx, repl in RULES:
         gate = _GATE.get(name)
@@ -437,12 +442,128 @@ EMAIL_CHECK = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.
 EMAIL_ANY = re.compile(r"[\w.%+-]+@[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}")
 
 
+# ---- added 2026-11-17: broken-form addresses (PI decision 2026-11-17) ------------------------------
+# FDA text also quotes addresses that the pattern above cannot see: split by a space or a comma before the
+# top-level domain ("X@OWENS-MINOR .COM", "X@IMRIS. COM", "X@LIVANOVA,COM", "X@STENCYCLE COM"), split inside
+# the domain ("X@ART HREX.COM") or before the @ ("SUPPORT @VARIAN.COM", "X(@GETINGE.COM"), cut off by a
+# field-length limit ("X@INTUSURG", "X.Y@BROADSPIRE") or written as "X(AT)Y.Z". scrub_email() removes them
+# after EMAIL_ANY, with three rules (counted separately by scrub_email_rules):
+#   email_split      local part + " @" / "(@" / "@" + domain pieces (dots or single spaces, at most 4
+#                    spaces, a piece that is a common word followed by a space ends the domain) + a TLD after
+#                    " ." / ". " / ".." (any TLD in _TLDS) or after "," or a bare space (com/org/net/edu/gov
+#                    only); TLD in lower or upper case only ("OPTIONS. At" is prose); not when the domain starts
+#                    with HOME or the word before " @" is prose ("EMAIL FROM @X.COM" keeps no mailbox)
+#   email_truncated  local@fragment with no TLD: the local part starts with a letter after a non-word
+#                    character, has 2+ characters and 2+ letters, the fragment is letters (and - .), 2+
+#                    characters, not HOME...; AND either e-mail wording (EMAIL, MAIL, CONTACT, SEND ...) stands in
+#                    the 80 characters before it (or [PHONE REMOVED] in the 40 before it and the local part
+#                    has 4+ letters: a contact block), or the local part looks like a mailbox (FIRST.LAST, a role
+#                    word such as SUPPORT / SERVICE / RECALL / REGULATORY, or a name + 3 digits) and the fragment
+#                    has 4+ characters. Product, lot and facility names stay: 2008K@HOME, MERLIN@HOME, K@HOME,
+#                    M@10645, @ 5 MG, @HOME, DEVICES@FDA, ORG@NIZER, HEALTH@FITNESS, CT@MRI, LOT@UNK
+#   email_at_word    "X(AT)Y.Z", "X [AT] Y.Z", "X (AT) Y (DOT) Z": the domain must end in a TLD and must not
+#                    contain ". " ("TIBIAL (AT) ARTERY. THE" stays); spelled out ("X AT Y DOT COM") only with
+#                    com/org/net/edu/gov ("LOOKED AT THE DOT IN THE" stays)
+_TLD_LIST = ("com org net edu gov mil int info biz io co us uk de fr it es nl be ch at se no dk fi ie pt pl cz hu "
+             "gr ru jp cn kr tw hk sg in au nz ca mx br ar cl za il tr eu").split()
+_TLDS = "|".join(sorted({t for x in _TLD_LIST for t in (x, x.upper())}, key=lambda s: (-len(s), s)))
+_TLDS_BARE = "com|org|net|edu|gov|COM|ORG|NET|EDU|GOV"
+_EM_LOCAL = r"[A-Za-z0-9][\w.%+-]*"
+_EM_PART = r"[A-Za-z0-9][A-Za-z0-9-]*"
+_EM_WORD_STOP = r"(?!(?i:or|and|to|for|the|at|in|on|with|by|from|www|call|fax|phone|tel|email|e-mail|if|is|of)\s)"
+_EM_SPLIT = re.compile(
+    r"(?<![\w.%+@-])(?P<local>" + _EM_LOCAL + r")(?P<at>\s?\(?@)(?P<dom>[A-Za-z][A-Za-z0-9-]*"
+    + r"(?:(?:\.\s?|\s" + _EM_WORD_STOP + r")" + _EM_PART + r"){0,6}?)"
+    + r"(?P<tail>\s?\.\.?\s?(?P<tld>" + _TLDS + r")|,(?:" + _TLDS_BARE + r")|\s(?:" + _TLDS_BARE + r"))"
+    + r"(?:\.(?:" + _TLDS + r"))?(?![\w@-])")
+# 2-letter TLDs that are also English words: after a space only when the domain itself has no space
+# ("X@MATERIALISE. BE" is an address, "MERLIN@HOME RF REMOTE. IN" is not)
+_TLD_WORDS = {"in", "it", "at", "be", "no", "us", "co", "me", "is", "to", "do", "go", "so", "my", "as"}
+# a word before " @domain" that is prose, not a mailbox ("EMAIL FROM @CARDINALHEALTH.COM": no address left)
+_LOCAL_WORDS = {"from", "to", "at", "email", "e-mail", "mail", "or", "and", "via", "by", "contact", "address", "is",
+                "the", "a", "an", "of", "for", "on", "in", "with", "removed"}
+
+
+def _split_ok(m):
+    dom, tail, tld = m.group("dom"), m.group("tail"), (m.group("tld") or "")
+    if dom.split()[0].split(".")[0].lower().startswith("home") or sum(ch.isspace() for ch in dom) > 4:
+        return False
+    if tld.lower() in _TLD_WORDS and any(ch.isspace() for ch in tail) and not (
+            dom.islower() and tld.islower() and not any(ch.isspace() for ch in dom)):
+        return False                                   # "8V@1MS. NO", "X@ACME. IT"; "x@materialise. be" is kept
+    if m.group("at") != "@" and m.group("local").lower() in _LOCAL_WORDS:
+        return False
+    return True
+_EM_TRUNC = re.compile(r"(?<![\w.%+#@-])([A-Za-z][\w.%+-]*[A-Za-z0-9])@([A-Za-z][A-Za-z0-9-]*(?:\.[A-Za-z0-9-]+)*)"
+                       r"(?![\w@-])")
+# a cut-off address is taken only with e-mail wording in the 80 characters before it, or when the local part
+# itself looks like a mailbox: FIRST.LAST, a role word, or a firm name + 3 or more digits (recall-response boxes)
+_TRUNC_CUE = re.compile(r"(?i:e-?mail|\bmail\b|contact|\breach\b|\bwrite\b|\bsen[dt]\b|\[EMAIL REMOVED\])")
+_TRUNC_PHONE = re.compile(r"\[(?:PHONE|NUMBER) REMOVED\]")
+_TRUNC_PERSON = re.compile(r"[A-Za-z]+[._][A-Za-z]{2,}(?:[._-][A-Za-z0-9]+)*")
+_TRUNC_ROLE = re.compile(r"(?i:support|service|regulatory|reporting|complaint|recall|quality|vigilance|safety|"
+                         r"info|sales|orders|feedback|fieldaction|helpdesk|affairs)")
+_TRUNC_BOX = re.compile(r"[A-Za-z]{3,}\d{3,}")
+_TRUNC_DOM = re.compile(r"[A-Za-z][A-Za-z-]*[A-Za-z](?:\.[A-Za-z-]+)*")
+_AT_W, _DOT_W = r"(?:\((?:at|AT)\)|\[(?:at|AT)\]|\{(?:at|AT)\})", r"(?:\((?:dot|DOT)\)|\[(?:dot|DOT)\])"
+_EM_ATWORD = re.compile(
+    r"(?<![\w.%+-])" + _EM_LOCAL + r"(?:\s?" + _AT_W + r"\s?" + _EM_PART + r"(?:(?:\.|\s?" + _DOT_W + r"\s?)"
+    + _EM_PART + r")*(?:\.|\s?" + _DOT_W + r"\s?)(?:" + _TLDS + r")"
+    + r"|\s(?:at|AT)\s" + _EM_PART + r"(?:\s(?:dot|DOT)\s" + _EM_PART + r")*\s(?:dot|DOT)\s(?:" + _TLDS_BARE + r"))(?![\w@-])")
+_EM_BROKEN_GATE = re.compile(r"@|\((?:at|AT)\)|\[(?:at|AT)\]|\{(?:at|AT)\}|\s(?:dot|DOT)\s")
+
+
+def _trunc_ok(m):
+    local, dom = m.group(1), m.group(2)
+    if sum(ch.isalpha() for ch in local) < 2 or not _TRUNC_DOM.fullmatch(dom) or dom.lower().startswith("home"):
+        return False
+    if _TRUNC_CUE.search(m.string, max(0, m.start() - 80), m.start()):
+        return True
+    if (sum(ch.isalpha() for ch in local) >= 4 and len(dom) >= 2
+            and _TRUNC_PHONE.search(m.string, max(0, m.start() - 40), m.start())):
+        return True                                    # "[PHONE REMOVED] J.ROE@GE 03/28/2018" (contact block)
+    at_end = m.end() >= len(m.string.rstrip())         # cut off by the field length
+    return (len(dom) >= 4 or at_end) and bool(_TRUNC_PERSON.fullmatch(local) or _TRUNC_ROLE.search(local)
+                                              or _TRUNC_BOX.fullmatch(local))
+
+
+def scrub_email_rules(text):
+    """-> (text with every e-mail address replaced by [EMAIL REMOVED], Counter of addresses by rule:
+    email (EMAIL_ANY), email_split, email_truncated, email_at_word)."""
+    hits = collections.Counter()
+    if not text or not _EM_BROKEN_GATE.search(text):
+        return text, hits
+    if "@" in text:
+        text, n = EMAIL_ANY.subn("[EMAIL REMOVED]", text)
+        hits["email"] += n
+        if "@" in text:
+            def _s(m):
+                if not _split_ok(m):
+                    return m.group(0)
+                hits["email_split"] += 1
+                return "[EMAIL REMOVED]"
+            text = _EM_SPLIT.sub(_s, text)
+
+            def _t(m):
+                if not _trunc_ok(m):
+                    return m.group(0)
+                hits["email_truncated"] += 1
+                return "[EMAIL REMOVED]"
+            if "@" in text:
+                text = _EM_TRUNC.sub(_t, text)
+    if _EM_BROKEN_GATE.search(text):
+        text, n = _EM_ATWORD.subn("[EMAIL REMOVED]", text)
+        hits["email_at_word"] += n
+    return text, +hits
+
+
 def scrub_email(text):
-    """-> (text with every e-mail address replaced by [EMAIL REMOVED], number of addresses removed)."""
-    if not text or "@" not in text:
+    """-> (text with every e-mail address replaced by [EMAIL REMOVED], number of addresses removed).
+    Since 2026-11-17 also the broken forms (see scrub_email_rules)."""
+    if not text or not _EM_BROKEN_GATE.search(text):
         return text, 0
-    text, n = EMAIL_ANY.subn("[EMAIL REMOVED]", text)
-    return text, n
+    text, hits = scrub_email_rules(text)
+    return text, sum(hits.values())
 
 
 def _selftest():
@@ -572,7 +693,101 @@ def _selftest():
         assert not EMAIL_CHECK.search(got)
     for s in ("5V@0.5MS", "MODEL A@1", "LOT 12@34.5", "NO ADDRESS HERE", "", None):
         assert scrub_email(s) == (s, 0), s
-    print(f"scrub.py self-test PASSED ({len(cases)} removals, {len(keep)} keeps, {len(emails)} e-mail cases).")
+    # broken-form addresses (added 2026-11-17): shapes from the FDA recall database and MAUDE; role mailboxes
+    # as published, personal mailboxes replaced by synthetic ones
+    broken = [
+        # email_split
+        ("Form to J.Doe@owens-minor .com. Please respond", "Form to [EMAIL REMOVED]. Please respond", "email_split"),
+        ("Email: customersupport@imris. com if you have", "Email: [EMAIL REMOVED] if you have", "email_split"),
+        ("email to Stericycle at ortho1234@stericycle com. Product", "email to Stericycle at [EMAIL REMOVED]. Product",
+         "email_split"),
+        ("email CustomerService@livanova,com to have", "email [EMAIL REMOVED] to have", "email_split"),
+        ("send an email to brachyhelp@varian,com.", "send an email to [EMAIL REMOVED].", "email_split"),
+        ("form to technical.services@randox..com within", "form to [EMAIL REMOVED] within", "email_split"),
+        ("Surveillance at 866-267-9138 or complaints@art hrex.com .", "Surveillance at 866-267-9138 or [EMAIL REMOVED] .",
+         "email_split"),
+        ("e-mail at CustomerrelationsNA@cook medical.com.", "e-mail at [EMAIL REMOVED].", "email_split"),
+        ("or inf o@m icr olinesur g ical.com. with", "or inf [EMAIL REMOVED]. with", "email_split"),
+        ("RS.NA VTECHSUPPORT@M EDTRON IC.COM", "RS.NA [EMAIL REMOVED]", "email_split"),
+        ("recalls@microventi on.com or in the", "[EMAIL REMOVED] or in the", "email_split"),
+        ("via e-mail to j. doe@sti hlerelectronic. de. 3. You", "via e-mail to j. [EMAIL REMOVED]. 3. You", "email_split"),
+        ("E-mail : ortho-quality@materialise. be Customer Service", "E-mail : [EMAIL REMOVED] Customer Service",
+         "email_split"),
+        ("1-888-667-8272 or TechSupport @mortara.com to schedule", "1-888-667-8272 or [EMAIL REMOVED] to schedule",
+         "email_split"),
+        ("Email: support @varian.com", "Email: [EMAIL REMOVED]", "email_split"),
+        ("by e-mailing a scanned copy to blowermister(@qetinge.com or", "by e-mailing a scanned copy to [EMAIL REMOVED] or",
+         "email_split"),
+        ("Complaints @Stryuker.com. upon receipt", "[EMAIL REMOVED]. upon receipt", "email_split"),
+        # email_truncated
+        ("Option 3 (4 AM to 5 PM PST) or mail: customerservice@intusurg", "Option 3 (4 AM to 5 PM PST) or mail: [EMAIL REMOVED]",
+         "email_truncated"),
+        ("via email at xray-support.nm-us@nikon or phone", "via email at [EMAIL REMOVED] or phone", "email_truncated"),
+        ("to Abiomed4437@sedgwick, forward the", "to [EMAIL REMOVED], forward the", "email_truncated"),
+        ("email at support@raysearchlabs. For questions", "email at [EMAIL REMOVED]. For questions", "email_truncated"),
+        ("or customerservice@aspensurgical for information on credit options. At this time",
+         "or [EMAIL REMOVED] for information on credit options. At this time", "email_truncated"),
+        ("emailing: [EMAIL REMOVED] or call 770-575-5236 or jdoe@amendia or call 770-575-5369",
+         "emailing: [EMAIL REMOVED] or call 770-575-5236 or [EMAIL REMOVED] or call 770-575-5369", "email_truncated"),
+        ("J.DOE@BROADSPIRE", "[EMAIL REMOVED]", "email_truncated"),
+        ("JANE.ROE@BROADSPIRET", "[EMAIL REMOVED]", "email_truncated"),
+        ("Tel: 267-795-7031 Email: recall@hiossen", "Tel: 267-795-7031 Email: [EMAIL REMOVED]", "email_truncated"),
+        ("Monday-Friday or at dl-us-inf-techsupport@ca", "Monday-Friday or at [EMAIL REMOVED]", "email_truncated"),
+        ("REPAIR APPROVED BY J DOE AT J.DOE@TENE THEALTH.COM OR $365.", "REPAIR APPROVED BY J DOE AT [EMAIL REMOVED] OR $365.",
+         "email_split"),
+        ("APPROVED BY J DOE AT JDOE @EXAMPLEHEALTH.ORG FOR", "APPROVED BY J DOE AT [EMAIL REMOVED] FOR", "email_split"),
+        ("CALL BACK. J.ROE3@VA,GOV TECH THANK", "CALL BACK. [EMAIL REMOVED] TECH THANK", "email_split"),
+        ("E-MAIL: JDOE@CARDIOLOGY. EXAMPLE.EDU. X HANDLE: @JDOEMD.", "E-MAIL: [EMAIL REMOVED]. X HANDLE: @JDOEMD.",
+         "email_split"),
+        ("CORRESPONDING E-MAIL: J.ROE@OSPEDALI. EXAMPLE.IT.] THIS", "CORRESPONDING E-MAIL: [EMAIL REMOVED].] THIS",
+         "email_split"),
+        ("D3, G1, AND G2 EMAIL IS: REGULATORY.RESPONSES@ICUMED. H3 AND", "D3, G1, AND G2 EMAIL IS: [EMAIL REMOVED]. H3 AND",
+         "email_truncated"),
+        ("2017 J ROE [PHONE REMOVED] J.ROE@GE 03/28/2018 13:37", "2017 J ROE [PHONE REMOVED] [EMAIL REMOVED] 03/28/2018 13:37",
+         "email_truncated"),
+        ("/ [PHONE REMOVED] JROELAND@STPH 08/09/2019", "/ [PHONE REMOVED] [EMAIL REMOVED] 08/09/2019", "email_truncated"),
+        ("BCIREGULATORYREPORTING@BECKMAN", "[EMAIL REMOVED]", "email_truncated"),
+        ("to Avanos1234@stericycle, forward", "to [EMAIL REMOVED], forward", "email_truncated"),
+        ("Email sent to customerfeeback @carefusion.com. Sample", "Email sent to [EMAIL REMOVED]. Sample", "email_split"),
+        # email_at_word
+        ("WITH CORRESPONDING EMAIL: J.DOE(AT)STUDENT.EXAMPLE.FI] THE", "WITH CORRESPONDING EMAIL: [EMAIL REMOVED]] THE",
+         "email_at_word"),
+        ("write to jdoe [at] example.org today", "write to [EMAIL REMOVED] today", "email_at_word"),
+        ("mail jdoe (AT) example (DOT) com now", "mail [EMAIL REMOVED] now", "email_at_word"),
+        ("mail jdoe at example dot com now", "mail [EMAIL REMOVED] now", "email_at_word"),
+    ]
+    for raw, want, rule in broken:
+        got, hits = scrub_email_rules(raw)
+        assert got == want and hits.get(rule, 0) >= 1, f"\n raw: {raw}\n got: {got} {dict(hits)}\nwant: {want} ({rule})"
+        assert scrub_email(raw)[0] == want and not EMAIL_CHECK.search(got)
+    # not addresses: product names, lot strings, rates, handles, prose (must stay unchanged)
+    for s in ("Fresenius 2008K@home Series", "2008K@HOME", "K@HOME", "2008 K2@home Hemodialysis", "Merlin@home Transmitter",
+              "Merlin@Home Software", "The Well@Home Monitor", "The Merlin@home\" (M@h) transmitter", "Esaote brand Formul@ ECG",
+              "M@10645", "10@523722", "00175#@QUART", "IRC10LXO@", "ORTHOPAT @277", "2 @ 5 mg", "@HOME transmitter",
+              "@ 5 mg", "x@y", "JOHNSON @ JOHNSON", "CENTRAL STATION @ V5.1.1. SOFTWARE",
+              "Customer Service @ 1-800-521-2818 or", "call Linda Regan @508-977-6606.",
+              "ANTERIOR TIBIAL (AT) ARTERY. THE", "ATRIAL TACHYCARDIA (AT) EPISODES. THE", "LOOKED AT THE DOT ON THE SCREEN",
+              "LOOKED AT THE DOT IN THE", "THE (AT) LESION", "Formul@ ECG System; part 9704220000.",
+              "1 Sunview Road, #08-58 Eco-Tech@Sunview", "Institutional Review Board@Tallahassee Mem. Healthcare,Inc.",
+              "ORG@NIZER, MODEL VERSION 3.0", "Health@Fitness Technologies, Inc.", "Aisoftw@Re Medical, S.P.A.",
+              "Devices@FDA Catalog Record", "CANYON FOOT@ANKLE SPEC", "HOTZE HEALTH@WELLNESS", "CT@MRI",
+              "SMARTSITE@NEEDLE-FREE VALVE", "CITATION TMZF@HA HIP STEM", "NBFCA55TN@C0329X", "NSLG@C35",
+              "PART#71306112, LOT@UNK", "STRT NECK PED@EACH(ES)", "3 UNITS AM5-7@LUNCH & 7-8PM", "AM@PAT, INC",
+              "UPDATES TO THE MERLIN@HOMETRANSMITTERS.", "A70107008 @EXPRESSAIRE TRNQT CUFF, SG PO", "Endo@Prep EDTA Gel",
+              "well@home2 system", "formula2@Danielricc", "Link@Amk", "MS@NK TIE WST", "SMPQES180@V2",
+              "Email from @cardinalhealth.com Subject: RE:", "THRESHOLD HAD RISEN ABOVE 8V@1MS. NO R-WAVES",
+              "OF 1.8 VOLTS @0.5MS. IT WAS", "K2: 45.24 @83. NO ADDITIONAL", "SEVERE BRADYCARDIA @10 BPM. AT 11:10",
+              "VIA A MERLIN@HOME TRANSMISSION. NO FURTHER", "THE FRESENIUS 2008K@HOME MACHINE. IT WAS", "25% @3GM. NO",
+              "ON 24MAY2025 @0037. IT APPEARED", "HMS @41J. IT WAS", "NAME REMOVED @VA.GOV> WROTE:", "X HANDLE: @JAMIEMCCABEMD.",
+              "THE PUMP FAILED OCCLUSION @11.26 PSI DURING TESTING. NO", "SAMPLE COLLECTED @SAME TIME AS ISTAT. AT THE",
+              "PROCESSING ESSURE CASES IN DEV@COM.", "THE WINDOW WAS READING \"ROOT@STEALTH\".", "REQUEST FROM QA (YA@CMJ):",
+              "RECEIVED MDN: A953F204-92F1-11ED-CA49-000032BD386F@HPP.", "TWITTER: JDOE@VEINDOC1 1078-5884",
+              "COOK CELECT@VENA CAVA FILTER", "SPECIFICATION FOR BIOLOX@DELTA COMPONENTS", "[PHONE REMOVED] RT@CASE",
+              "MERLIN@HOME RF REMOTE. IN", "5V@0.5MS", "LOT 12@34.5"):
+        got, hits = scrub_email_rules(s)
+        assert got == s and not hits, f"over-scrubbed: {s!r} -> {got!r} {dict(hits)}"
+    print(f"scrub.py self-test PASSED ({len(cases)} removals, {len(keep)} keeps, {len(emails)} e-mail cases, "
+          f"{len(broken)} broken-form e-mail cases).")
 
 
 if __name__ == "__main__":
