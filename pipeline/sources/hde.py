@@ -78,14 +78,16 @@ def transform(src, out, retrieved_at=None):
     rows = list(_rows(src))
     # deterministic: originals first, then supplements, sorted
     rows.sort(key=lambda r: (r.get("HDENUMBER", ""), r.get("SUPPLEMENTNUMBER", "")))
-    bases_written, firms = set(), {}
+    bases_written, firms, hub_codes = set(), {}, set()
     with base.TurtleWriter(out) as w:
         for r in rows:
             num, supp = r.get("HDENUMBER"), r.get("SUPPLEMENTNUMBER")
             if not num:
                 st.skipped += 1
                 continue
-            pc = r.get("PRODUCTCODE")
+            pc = common.product_code(r.get("PRODUCTCODE"))
+            if pc:
+                hub_codes.add(pc)
             nf = normalize_org(r.get("APPLICANT"))
             pairs = [
                 ("a", "ex:HumanitarianDeviceExemption"),
@@ -132,12 +134,14 @@ def transform(src, out, retrieved_at=None):
         # or ex:supplementOf would point at a node with no type (an orphan)
         for num in sorted({r["HDENUMBER"] for r in rows if r.get("HDENUMBER")} - bases_written):
             w.block(iri.hde(num), [("a", "ex:HumanitarianDeviceExemption"),
+                                   ("rdfs:label", common.lit(f"HDE {num}")),
                                    ("ex:hdeNumber", common.lit(num))])
 
         for nf in sorted(firms):
-            w.block(iri.firm_name(nf), [("a", "ex:FirmName"),
-                                        ("rdfs:label", common.lit(firms[nf])),
-                                        ("ex:normalizedName", common.lit(nf))])
+            w.block(iri.firm_name(nf), common.firm_name_pairs(nf, firms[nf]))
+        # minimal typed hub nodes so product-code links never dangle
+        for pc in sorted(hub_codes):
+            w.block(iri.product_code(pc), [("a", "ex:ProductCode"), ("ex:productCode", common.lit(pc))])
     st.triples = w.triples
     return st
 
@@ -176,6 +180,8 @@ def _selftest():
     assert f"<{iri.product_code('NIV')}>" in text
     assert f"<{iri.firm_name('KANEKA PHARMA AMERICA')}>" in text
     assert 'ex:reviewGranted "false"^^xsd:boolean' in text
+    assert 'rdfs:label "HDE H000001"' in text                        # backfilled base is labelled
+    assert f"<{iri.product_code('NIV')}>\n    a ex:ProductCode" in text  # hub stub
     try:
         list(_parse("A|B\n1|2"))
     except ValueError:

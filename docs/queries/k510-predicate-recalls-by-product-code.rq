@@ -1,0 +1,25 @@
+#+ summary: Predicate devices named by the 510(k) records of a product code whose own 510(k) has recalls in FDA's recall database, with recall counts and classes
+#+ tags:
+#+   - medical-device-kg
+
+# Change the product code in VALUES. Only high- and medium-confidence predicate links are used. Recalls
+# are ex:RecallRecord nodes whose ex:relatedK510Record is the predicate's 510(k) (FDA recall database).
+# A recall of a predicate says nothing about the citing device itself; it is a starting point for a
+# hazard review of the design lineage.
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?code ?predicate ?predicateName (COUNT(DISTINCT ?k) AS ?citedBy) (COUNT(DISTINCT ?r) AS ?recalls)
+       (GROUP_CONCAT(DISTINCT ?class; separator=", ") AS ?recallClasses)
+       (GROUP_CONCAT(DISTINCT ?number; separator=" ") AS ?recallNumbers) WHERE {
+  VALUES ?code { "KGN" }
+  ?k a ex:K510Record ; ex:productCode ?code ; ex:predicateDevice ?predicate .
+  ?link a ex:PredicateDeviceLink ; rdf:subject ?k ; rdf:object ?predicate ; ex:confidence ?confidence .
+  FILTER(?confidence IN ("high", "medium"))
+  ?r a ex:RecallRecord ; ex:relatedK510Record ?predicate .
+  OPTIONAL { ?r ex:recallClassification ?class }
+  OPTIONAL { ?r ex:recallNumber ?number }
+  OPTIONAL { ?predicate rdfs:label ?predicateName }
+}
+GROUP BY ?code ?predicate ?predicateName
+ORDER BY DESC(?recalls) DESC(?citedBy) ?predicate

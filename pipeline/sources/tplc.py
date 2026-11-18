@@ -146,15 +146,12 @@ def aggregate_records(records, t=None):
         pcs = {}
         for dev in (r.get("device") or []):
             of = dev.get("openfda") or {}
-            pc = _clean(dev.get("device_report_product_code"))
+            # only real three-letter FDA codes; reporter-typed noise ("269", "N/A") is
+            # not minted as a product code (query test 2026-10-11 found 48 such nodes)
+            pc = common.product_code(dev.get("device_report_product_code"))
             if not pc:
-                pc = _clean((common.as_list(of.get("product_code")) or [None])[0])
+                pc = common.product_code((common.as_list(of.get("product_code")) or [None])[0])
             if not pc:
-                continue
-            pc = pc.upper()
-            try:
-                iri.slug(pc)
-            except ValueError:
                 continue
             pcs.setdefault(pc, _clean((common.as_list(of.get("device_name")) or [None])[0])
                            or _clean(dev.get("generic_name")))
@@ -168,7 +165,8 @@ def aggregate_records(records, t=None):
         pprobs, outs = set(), set()
         for pt in (r.get("patient") or []):
             pprobs |= {p for p in (_clean(x) for x in common.as_list(pt.get("patient_problems"))) if p}
-            outs |= {o for o in (_clean(x) for x in common.as_list(pt.get("sequence_number_outcome"))) if o}
+            # older reports carry one-letter outcome codes; map them to FDA's words
+            outs |= {o for o in (common.outcome_label(_clean(x)) for x in common.as_list(pt.get("sequence_number_outcome"))) if o}
         for pc, name in pcs.items():
             t["reports"][pc] += 1
             t["etype"][(pc, et)] += 1
@@ -294,7 +292,7 @@ def write(t, out, retrieved_at=None):
             w.block(iri.product_code(pc), [
                 ("a", "ex:ProductCode"),
                 ("ex:productCode", common.lit(pc)),
-                ("rdfs:label", common.lit(t["label"].get(pc))),
+                ("skos:altLabel", common.lit(t["label"].get(pc))),   # rdfs:label comes from classification
                 ("ex:relatedTPLC", f"<{node}>"),
             ])
 
@@ -372,10 +370,10 @@ def _selftest():
          "device": [{"device_report_product_code": "DZE"}, {"device_report_product_code": "frn"}]},
         {"report_number": "1-2021-3", "event_type": "Death", "date_received": "20211231",
          "product_problems": ["battery problem"],                                 # slug-collides -> merged
-         "patient": [{"sequence_number_outcome": ["Death"]}],
+         "patient": [{"sequence_number_outcome": ["Death"]}, {"sequence_number_outcome": ["H"]}],  # letter code
          "device": [{"openfda": {"product_code": ["DZE"]}}]},
         {"report_number": "1-2022-4", "event_type": "Malfunction", "date_received": "20220101",
-         "device": [{"generic_name": "no code"}]},                                # no product code
+         "device": [{"generic_name": "no code"}, {"device_report_product_code": "269"}]},  # no valid code
     ]
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
@@ -409,6 +407,10 @@ def _selftest():
     assert f"ex:relatedTPLC <{iri.tplc('FRN')}>" in text                        # hub link
     assert 'ex:sourceDataset "device/event (aggregated to TPLC)"' in text
     assert "medicaldevice.com" not in text
+    assert "product-code/269" not in text                                       # junk code not minted
+    hosp = block(iri.tplc_outcome("DZE", "Hospitalization"))
+    assert 'ex:reportCount "2"^^xsd:integer' in hosp, hosp                       # "H" merged with the word
+    assert 'rdfs:label "Defibrillator"' not in text and 'skos:altLabel "Defibrillator"' in text
     print(f"tplc.py self-test PASSED ({st.records} product codes, {st.triples} triples; parallel == serial).")
 
 

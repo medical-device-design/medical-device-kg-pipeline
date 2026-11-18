@@ -7,6 +7,8 @@ Each record -> ex:RegistrationListingRecord (identity + address = the geographic
 layer), linked to a deduped ex:Manufacturer node (keyed on FEI) and to the
 ex:ProductCode hub for every product the establishment lists. Records are nested
 (registration / owner_operator / contact_address / products), handled defensively.
+E-mail addresses in FDA text (one establishment address line holds one) are replaced by
+[EMAIL REMOVED] in every literal (common.text_lit; PI decision 2026-11-17).
 """
 import os
 import sys
@@ -72,30 +74,32 @@ def transform(src, out, retrieved_at=None):
             addr = reg if (reg.get("address_line_1") or reg.get("city")) else (reg.get("contact_address") or {})
             owner = reg.get("owner_operator") or {}
             fei = str(reg.get("fei_number") or "").strip()
-            street = ", ".join(x for x in (addr.get("address_line_1"), addr.get("address_line_2")) if x)
+            street = common.norm_address(addr.get("address_line_1"), addr.get("address_line_2"))
 
             pairs = [
                 ("a", "ex:RegistrationListingRecord"),
-                ("ex:registrationNumber", common.lit(reg.get("registration_number"))),
-                ("ex:feiNumber", common.lit(fei) if fei else None),
-                ("ex:name", common.lit(reg.get("name"))),
-                ("ex:statusCode", common.lit(reg.get("status_code"))),
+                # the establishment name is its label (also shown for its geocoded point)
+                ("rdfs:label", common.text_lit(common.norm_text(reg.get("name")))),
+                ("ex:registrationNumber", common.text_lit(reg.get("registration_number"))),
+                ("ex:feiNumber", common.text_lit(fei) if fei else None),
+                ("ex:name", common.text_lit(reg.get("name"))),
+                ("ex:statusCode", common.text_lit(reg.get("status_code"))),
                 ("ex:initialImporterFlag", common.bool_lit(reg.get("initial_importer_flag"))),
-                ("ex:registrationExpiryYear", common.lit(reg.get("reg_expiry_date_year"))),
-                ("ex:address", common.lit(street)),
-                ("ex:city", common.lit(addr.get("city"))),
-                ("ex:state", common.lit(addr.get("state_code") or addr.get("state_province"))),
-                ("ex:postalCode", common.lit(addr.get("zip_code") or addr.get("postal_code"))),
-                ("ex:country", common.lit(addr.get("iso_country_code"))),
+                ("ex:registrationExpiryYear", common.text_lit(reg.get("reg_expiry_date_year"))),
+                ("ex:address", common.text_lit(street)),
+                ("ex:city", common.text_lit(addr.get("city"))),
+                ("ex:state", common.text_lit(addr.get("state_code") or addr.get("state_province"))),
+                ("ex:postalCode", common.text_lit(addr.get("zip_code") or addr.get("postal_code"))),
+                ("ex:country", common.text_lit(addr.get("iso_country_code"))),
                 # owner/operator FIRM only; official correspondent and US agent are people -> not ingested
-                ("ex:ownerOperatorNumber", common.lit(owner.get("owner_operator_number"))),
-                ("ex:ownerOperatorName", common.lit(owner.get("firm_name"))),
-                ("ex:usAgentBusinessName", common.lit((reg.get("us_agent") or {}).get("business_name"))),
+                ("ex:ownerOperatorNumber", common.text_lit(owner.get("owner_operator_number"))),
+                ("ex:ownerOperatorName", common.text_lit(owner.get("firm_name"))),
+                ("ex:usAgentBusinessName", common.text_lit((reg.get("us_agent") or {}).get("business_name"))),
             ]
             for et in common.as_list(r.get("establishment_type")):
-                pairs.append(("ex:establishmentType", common.lit(et)))
+                pairs.append(("ex:establishmentType", common.text_lit(et)))
             for pn in common.as_list(r.get("proprietary_name")):
-                pairs.append(("ex:proprietaryName", common.lit(pn)))
+                pairs.append(("ex:proprietaryName", common.text_lit(pn)))
             for k in common.as_list(r.get("k_number")):
                 k = str(k or "").strip()
                 if k:
@@ -110,7 +114,7 @@ def transform(src, out, retrieved_at=None):
                 manufacturers.setdefault(fei, owner.get("firm_name") or reg.get("name"))
 
             for prod in (r.get("products") or []):
-                pc = str(prod.get("product_code") or "").strip()
+                pc = common.product_code(prod.get("product_code"))
                 if not pc:
                     continue
                 pairs.append(("ex:hasProductCode", f"<{iri.product_code(pc)}>"))
@@ -123,9 +127,15 @@ def transform(src, out, retrieved_at=None):
 
             # openFDA has one record per LISTING (~13 per establishment); merge them so
             # each establishment is written once with the union of its listings.
+            # One rdfs:label per establishment: the first listing's name. When FDA's listings
+            # carry more than one establishment name (2026-11-04: registration 3008849319 is
+            # "Canady Biotechnology LLC" on some listings, "US MEDICAL INNOVATIONS, LLC" on
+            # others), every name is still kept as ex:name.
             acc = establishments.setdefault(regno, ({}, []))
             for p in pairs:
                 if p[1] is not None and p not in acc[0]:
+                    if p[0] == "rdfs:label" and any(q[0] == "rdfs:label" for q in acc[1]):
+                        continue
                     acc[0][p] = True
                     acc[1].append(p)
             listings += 1
@@ -138,14 +148,14 @@ def transform(src, out, retrieved_at=None):
         for fei in sorted(manufacturers):
             w.block(iri.manufacturer(fei=fei), [
                 ("a", "ex:Manufacturer"),
-                ("rdfs:label", common.lit(manufacturers[fei])),
-                ("ex:feiNumber", common.lit(fei)),
+                ("rdfs:label", common.text_lit(manufacturers[fei])),
+                ("ex:feiNumber", common.text_lit(fei)),
             ])
         for pc in sorted(hub):
             w.block(iri.product_code(pc), [
                 ("a", "ex:ProductCode"),
-                ("rdfs:label", common.lit(hub[pc])),
-                ("ex:productCode", common.lit(pc)),
+                ("skos:altLabel", common.text_lit(hub[pc])),      # rdfs:label comes from classification
+                ("ex:productCode", common.text_lit(pc)),
             ])
 
     st.triples = w.triples
@@ -164,7 +174,8 @@ def _selftest():
                           "name": "Acme Devices Inc", "status_code": "1",
                           "initial_importer_flag": "N",
                           "owner_operator": {"firm_name": "Acme Holdings"},
-                          "contact_address": {"address_line_1": "1 Main St", "city": "Boston",
+                          "contact_address": {"address_line_1": "1 Main St",
+                                              "address_line_2": "info@acme-devices.example.com", "city": "Boston",
                                               "state_code": "MA", "postal_code": "02110",
                                               "iso_country_code": "US"}},
          "establishment_type": ["Manufacture Medical Device"],
@@ -186,6 +197,10 @@ def _selftest():
                           "name": "Flat Layout Co", "address_line_1": "125 W 1000 S", "address_line_2": "Suite 2",
                           "city": "Smithfield", "state_code": "UT", "zip_code": "84335", "iso_country_code": "US"},
          "proprietary_name": ["SecondPump"], "products": [{"product_code": "MEA"}]},
+        # a third listing under another establishment name (FDA does this): one label, both names kept
+        {"registration": {"registration_number": "1000517406", "fei_number": "1000517406",
+                          "name": "FLAT LAYOUT HOLDINGS, LLC", "city": "Smithfield", "state_code": "UT"},
+         "products": [{"product_code": "MEA"}]},
     ]}
     with tempfile.TemporaryDirectory() as d:
         (Path(d) / "sample.json").write_text(json.dumps(sample), encoding="utf-8")
@@ -209,7 +224,13 @@ def _selftest():
     assert 'rdfs:label "Acme Holdings"' in text
     assert f"<{iri.product_code('FRN')}>" in text and f"<{iri.product_code('OYC')}>" in text
     assert 'ex:establishmentType "Manufacture Medical Device"' in text
+    assert 'rdfs:label "Flat Layout Co"' in text and text.count('rdfs:label "Flat Layout Co"') == 1
+    est = text.split(f"<{iri.establishment('1000517406')}>\n", 1)[1].split("\n\n", 1)[0]
+    assert est.count("rdfs:label") == 1 and 'ex:name "FLAT LAYOUT HOLDINGS, LLC"' in est and 'ex:name "Flat Layout Co"' in est
+    assert 'skos:altLabel "Pump, Infusion"' in text
     assert "ex:sourceDataset \"device/registrationlisting\"" in text
+    # e-mail addresses in FDA text -> [EMAIL REMOVED] (PI decision 2026-11-17); the rest of the value kept
+    assert "[EMAIL REMOVED]" in text and "acme-devices.example.com" not in text and 'ex:city "Boston"' in text
     print(f"registrationlisting.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
 

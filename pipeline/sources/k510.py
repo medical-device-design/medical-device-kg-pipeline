@@ -81,11 +81,12 @@ def transform(src, out, retrieved_at=None):
                 st.skipped += 1
                 continue
             of = r.get("openfda") or {}
-            pc = str(r.get("product_code") or _first(of.get("product_code")) or "").strip()
+            pc = common.product_code(r.get("product_code") or _first(of.get("product_code")))
             reg = _first(of.get("regulation_number"))
 
             pairs = [
                 ("a", "ex:K510Record"),
+                ("rdfs:label", common.label(kn, r.get("device_name"))),
                 ("ex:kNumber", common.lit(kn)),
                 ("ex:applicant", common.lit(r.get("applicant"))),
                 ("ex:deviceName", common.lit(r.get("device_name"))),
@@ -102,7 +103,7 @@ def transform(src, out, retrieved_at=None):
                 ("ex:state", common.lit(r.get("state"))),
                 ("ex:postalCode", common.lit(r.get("postal_code") or r.get("zip_code"))),
                 ("ex:country", common.lit(r.get("country_code"))),
-                ("ex:address", common.lit(", ".join(x for x in (r.get("address_1"), r.get("address_2")) if x))),
+                ("ex:address", common.lit(common.norm_address(r.get("address_1"), r.get("address_2")))),
                 ("ex:reviewPanel", common.lit(r.get("review_advisory_committee"))),
                 ("ex:statementOrSummary", common.lit(r.get("statement_or_summary"))),
                 # "contact" is the submitter's named contact person -> deliberately not ingested
@@ -130,7 +131,7 @@ def transform(src, out, retrieved_at=None):
             d = hub[pc]
             block = [
                 ("a", "ex:ProductCode"),
-                ("rdfs:label", common.lit(d.get("label"))),
+                ("skos:altLabel", common.lit(d.get("label"))),      # rdfs:label comes from classification
                 ("ex:productCode", common.lit(pc)),
                 ("ex:deviceClass", common.lit(d.get("device_class"))),
                 ("ex:medicalSpecialtyDescription", common.lit(d.get("specialty"))),
@@ -182,7 +183,8 @@ def _selftest():
     assert '"2004-06-30"^^xsd:date' in text                 # D4 typed date
     assert '"20169999"' in text                             # invalid date kept as string
     assert f"<{iri.product_code('FRN')}>" in text
-    assert "ex:ProductCode" in text and 'rdfs:label "Pump, Infusion"' in text
+    assert "ex:ProductCode" in text and 'skos:altLabel "Pump, Infusion"' in text
+    assert 'rdfs:label "K033394: Infusion Pump"' in text
     assert text.count("a ex:ProductCode") == 1              # hub deduped
     assert f"<{iri.regulation('880.5725')}>" in text
     assert "ex:sourceDataset \"device/510k\"" in text and '"2026-10-02"^^xsd:date' in text

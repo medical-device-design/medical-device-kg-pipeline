@@ -67,6 +67,7 @@ def transform(src, out, retrieved_at=None):
             # 1) the classification record
             rec_pairs = [
                 ("a", "ex:ProductClassificationRecord"),
+                ("rdfs:label", common.label(f"Classification {pc}", r.get("device_name"))),
                 ("ex:productCode", common.lit(pc)),
                 ("ex:deviceName", common.lit(r.get("device_name"))),
                 ("ex:deviceClass", common.lit(r.get("device_class"))),
@@ -114,7 +115,9 @@ def transform(src, out, retrieved_at=None):
         for reg in sorted(regs):
             w.block(iri.regulation(reg), [
                 ("a", "ex:RegulationNumber"),
-                ("rdfs:label", common.lit(reg)),
+                # rdfs:label is the 21 CFR section title (cfr.py); the number is the notation,
+                # so a regulation node carries one label instead of two
+                ("skos:notation", common.lit(reg)),
                 ("ex:regulationNumber", common.lit(reg)),
             ])
 
@@ -154,6 +157,8 @@ def _selftest():
     assert f"<{iri.regulation('880.5725')}>" in text and "ex:RegulationNumber" in text
     assert text.count("a ex:RegulationNumber") == 2               # two reg nodes, deduped
     assert "ex:sourceDataset \"device/classification\"" in text
+    assert 'rdfs:label "Classification FRN: Pump, Infusion"' in text
+    assert 'skos:notation "880.5725"' in text and 'rdfs:label "880.5725"' not in text
     print(f"classification.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
 

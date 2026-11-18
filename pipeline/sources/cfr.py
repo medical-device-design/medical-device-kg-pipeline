@@ -20,6 +20,8 @@ Emits:
         ex:sectionNumber, rdfs:label, ex:inCfrPart, ex:identificationText,
         ex:regulatoryClass ("1"/"2"/"3", may repeat), ex:regulationText, ex:cfrCitation
     ex:RegulationNumber     iri.regulation('878.3530')  ex:hasCFRSection -> section
+E-mail addresses quoted in the regulation text (agency contact addresses) are replaced by
+[EMAIL REMOVED] in every literal (common.text_lit; PI decision 2026-11-17).
 """
 import os
 import re
@@ -125,8 +127,8 @@ def transform(src, out, retrieved_at=None):
             dev = '"true"^^xsd:boolean' if is_device_part(part) else '"false"^^xsd:boolean'
             w.block(iri.cfr_part(part), [
                 ("a", "ex:CfrPart"),
-                ("rdfs:label", common.lit(re.sub(r"^PART\s+\d+\s*[—-]*\s*", "", heading, flags=re.I) or heading)),
-                ("ex:cfrPartNumber", common.lit(part)),
+                ("rdfs:label", common.text_lit(re.sub(r"^PART\s+\d+\s*[—-]*\s*", "", heading, flags=re.I) or heading)),
+                ("ex:cfrPartNumber", common.text_lit(part)),
                 ("ex:deviceRegulationPart", dev),
             ])
             for s in secs:
@@ -136,15 +138,15 @@ def transform(src, out, retrieved_at=None):
                 num = s["number"]
                 pairs = [
                     ("a", "ex:CFRTitle21Section"),
-                    ("rdfs:label", common.lit(s["title"])),
-                    ("ex:sectionNumber", common.lit(num)),
+                    ("rdfs:label", common.text_lit(s["title"])),
+                    ("ex:sectionNumber", common.text_lit(num)),
                     ("ex:inCfrPart", f"<{iri.cfr_part(part)}>"),
-                    ("ex:identificationText", common.lit(s["identification"])),
-                    ("ex:classificationText", common.lit(s["classification_text"])),
-                    ("ex:regulationText", common.lit(s["text"])),
-                    ("ex:cfrCitation", common.lit(s["citation"])),
+                    ("ex:identificationText", common.text_lit(s["identification"])),
+                    ("ex:classificationText", common.text_lit(s["classification_text"])),
+                    ("ex:regulationText", common.text_lit(s["text"])),
+                    ("ex:cfrCitation", common.text_lit(s["citation"])),
                 ]
-                pairs += [("ex:regulatoryClass", common.lit(c)) for c in s["classes"]]
+                pairs += [("ex:regulatoryClass", common.text_lit(c)) for c in s["classes"]]
                 pairs += common.provenance(DATASET, num, source_url=SECTION_URL.format(num),
                                            retrieved_at=retrieved_at)
                 w.block(iri.cfr_section(num), pairs)
@@ -152,8 +154,8 @@ def transform(src, out, retrieved_at=None):
                 if s["identification"] or s["classes"]:
                     w.block(iri.regulation(num), [
                         ("a", "ex:RegulationNumber"),
-                        ("ex:regulationNumber", common.lit(num)),
-                        ("rdfs:label", common.lit(s["title"])),
+                        ("ex:regulationNumber", common.text_lit(num)),
+                        ("rdfs:label", common.text_lit(s["title"])),
                         ("ex:hasCFRSection", f"<{iri.cfr_section(num)}>"),
                     ])
                 st.records += 1
@@ -181,7 +183,7 @@ def _selftest():
 <DIV8 N="§ 878.9" TYPE="SECTION"><HEAD>§ 878.9   [Reserved]</HEAD></DIV8>
 </DIV5>
 <DIV5 N="101" TYPE="PART"><HEAD>PART 101—FOOD LABELING</HEAD>
-<DIV8 N="§ 101.1" TYPE="SECTION"><HEAD>§ 101.1 Principal display panel.</HEAD><P>x</P></DIV8></DIV5>
+<DIV8 N="§ 101.1" TYPE="SECTION"><HEAD>§ 101.1 Principal display panel.</HEAD><P>x, e-mail: labeling.desk@fda.example.gov.</P></DIV8></DIV5>
 </ECFRBRWS></BODY></TEXT></DLPSTEXTCLASS>"""
     with tempfile.TemporaryDirectory() as d:
         d = Path(d)
@@ -201,6 +203,8 @@ def _selftest():
     assert 'rdfs:label "Silicone inflatable breast prosthesis"' in ttl
     assert 'ex:identificationText "A silicone inflatable breast prosthesis is a silicone rubber shell."' in ttl
     assert 'rdfs:label "GENERAL AND PLASTIC SURGERY DEVICES"' in ttl
+    # e-mail addresses in the regulation text -> [EMAIL REMOVED] (PI decision 2026-11-17)
+    assert "e-mail: [EMAIL REMOVED]." in ttl and "fda.example.gov" not in ttl
     print(f"cfr.py self-test PASSED ({st.records} sections, {st.triples} triples).")
 
 

@@ -1,0 +1,436 @@
+# v0.0.7: the rest of FDA's Medical Device Databases page
+
+Status: in progress (started October 13, 2026; last updated November 15, 2026). Not uploaded to lakeFS. Per the PI, v0.0.7 is uploaded only once every database on FDA's page is in the graph.
+
+## New sources
+
+| FDA database (fda.gov "Medical Device Databases") | Module | How it is fetched | Records |
+|---|---|---|---:|
+| MDR (Medical Device Reporting), 1984-1997 | `legacy_mdr.py` | MAUDE ftparea `mdr84`-`mdr97.zip` + `disclaim.zip` | 620,198 |
+| MAUDE Alternative Summary Reports, 1999-2019 (same FDA page as MAUDE data files; not in MAUDE or openFDA) | `asr.py` | ftparea `ASR_1999`-`ASR_2019.zip`, `ASR_PPC.zip`, term files | 6,066,980 |
+| Post-Approval Studies (PAS) | `pas.py` | `pma_pas_Excel.cfm` export | 354 |
+| PMA Summary Review Memos for 180-Day Design Changes | `pma_memo.py` | `pmamemos.cfm` list | 325 |
+| De Novo (detail pages; previously only DEN numbers from the 510(k) file) | `denovo.py` | `denovo.cfm` list + detail pages | 495 |
+| Product Classification detail fields not in `foiclass` | `classification_detail.py` | `classification.cfm` per product code | 7,094 codes |
+| Radiation-emitting Electronic Product Codes | `rh_codes.py` | `cfPCD_rh` advanced-search code list + detail pages | 646 |
+| CDRH Export Certificate Validation (CECV) | `cecv.py` | `rl_cert.cfm` by expiration-date windows + detail pages | 21,030 |
+| Advisory Committee/Panel Meetings (archive to 2009) | `advisory.py` | `cfAdvisory` per-panel searches + detail pages | 660 |
+| MedSun Reports | `medsun.py` | `searchreport.cfm` by date windows + detail pages | 79,433 ids (fetch running) |
+
+## Not yet available from FDA
+
+| Database | Problem (checked October 12 and 13, 2026) |
+|---|---|
+| Total Product Life Cycle (`cfTPLC/tplc.cfm`) | Redirects to fda.gov/medical-devices from the Hofstra network (VM and PI workstation). Our MAUDE-derived TPLC aggregates remain in the graph. |
+| Radiation Emitting Product Corrective Actions and Recalls (`rh_res.cfm`) | Every search returns HTTP 503 "currently unavailable". The module records the refusal and writes no records. |
+
+FDA's Office of Industry and Consumer Education replied on October 20, 2026: FDA is aware of the TPLC access problem (also seen outside Hofstra) and is working on it with no restoration date; it stated the corrective-action database works as of October 20, but searches still returned HTTP 503 on October 21, 2026, both from the build VM and in a browser. Neither database has a public bulk export. Research access and the TPLC license question were referred to uig@fda.hhs.gov.
+
+## Stopgap derived views (pipeline/derived_views.py)
+
+Built October 21, 2026 from FDA records already in the graph and labeled as derived on their `ex:SourceDataset` nodes. They are replaced or checked against FDA's own data when the two databases return.
+
+| View | Output | Result |
+|---|---|---|
+| Radiation-emitting product corrective actions: recalls whose product code is a radiation-emitting product code, typed `ex:RadiationCorrectiveAction` on the same recall IRI, linked to the radiation product code record, with 21 CFR 1000-1050 citations extracted from the recall text | `rh_actions_derived.ttl` | 8,099 recalls (of 59,483), 24,760 triples |
+| TPLC premarket and recall layer: 510(k), PMA (original and supplement), De Novo and HDE decisions and recalls by class, per product code and per year, on the existing TPLC nodes | `tplc_premarket.ttl` | 5,582 product codes, 331,479 triples |
+
+## Fixes from the v0.0.6 tests
+
+- One `rdfs:label` per vocabulary term: duplicate labels removed from `ontology/udi_extension.ttl` (test V1).
+- Product codes cited by records but missing from FDA's current classification file get a name from `scripts/product_code_fallback.py` (test V4; 299 codes in v0.0.6).
+- X-ray assembler addresses that were only "N/A" are dropped (test V6; 62 records).
+- `ex:hasRegulationNumber` no longer has `rdfs:domain ex:ProductCode`, so De Novo, classification and radiation records are not mis-typed under RDFS inference. `ex:reportedProductCodeText` likewise lost its MAUDE-only domain.
+
+## Modeling notes
+
+- ASR rows are summaries, not individual events; supplements repeat initial reports; FDA notes that ASR plus companion MAUDE reports double-count. This is on the dataset node (`ex:usageNote`). Per-row provenance is the dataset and record id only (file and line), with the download page and date on `ex:SourceDataset`, to fit 6 M rows on the VM.
+- Narratives (legacy MDR event descriptions and closeout text, MedSun descriptions and manufacturer responses, advisory agenda and procedure text) are in separate `*_text.ttl` files after `scrub.scrub_text`. Contact persons are never ingested (De Novo contacts, advisory staff contacts, MedSun reporters).
+- Legacy MDR access numbers that repeat (29,070; mostly a preliminary and a final report) take an ordinal suffix and `ex:sameAccessNumberAs` the first row.
+
+## Six more FDA device sources (October 28, 2026)
+
+Built from cached FDA pages on October 28, 2026; every output passes `riot --validate`. Triple counts are from `riot --count`.
+
+| Source | Module | How it is fetched | Records | Triples |
+|---|---|---|---:|---:|
+| AI-Enabled Medical Devices list | `ai_devices.py` | FDA's CSV download of the list | 1,614 (1,553 510(k), 40 De Novo, 21 PMA) | 27,016 |
+| Device Emergency Use Authorizations | `device_eua.py` | EUA HTML tables (COVID-19, mpox, historical and revoked, main EUA page) | 1,097 EUA rows; 3,472 linked documents | 39,517 |
+| Warning letters (medical devices) | `warning_letters.py` | warning letter index (JSON behind the listing page) + letter pages | 276 | 8,993 |
+| Safety communications and letters to health care providers | `safety_comms.py` | fda.gov listings + detail pages | 58 | 1,123 |
+| Guidance documents (CDRH, and CBER device guidances) | `guidance.py` | guidance search JSON + guidance pages | 605 | 15,039 |
+| Medical Device Shortages List and Discontinuance List | `shortages.py` | one fda.gov page, daily snapshots | 230 (6 on the shortage list, 1 removed, 223 discontinuances) | 4,183 |
+
+- IRIs come from new `pipeline/iri.py` minters: `ai_enabled_device`, `device_eua`, `eua_document`, `warning_letter`, `safety_communication`, `guidance_document`, `device_shortage`, `device_discontinuance`.
+- Warning letters and guidance documents share `ex:citesCfrSection` / `ex:citesCfrPart` (guidance previously used `ex:mentionsCfrSection` / `ex:mentionsCfrPart`).
+- New classes and properties are declared in the "six more FDA device sources" block of `ontology/ontology.ttl`; `ex:GuidanceDocument` now covers FDA's guidance listing as well as guidances linked from radiation product code pages.
+- Contact persons, letter bodies, recipient names, signatories and PDF contents are not ingested.
+
+### Known gaps
+
+| Gap | Reason |
+|---|---|
+| FDA Data Dashboard | Not ingested: its data downloads work only through JavaScript in a browser. |
+| Warning letters before 2021 | FDA's warning letter index covers 2021 onward. |
+| Safety communications 2011-2022 and discontinuances 2020-2024 | Published only on FDA's archive host, which this pipeline does not read. Not ingested. |
+| Device EUA numbers | Not on FDA's EUA pages (only inside the PDF letters, which are linked, not read). EUA rows are keyed on a hash of page, section, holder and product. |
+
+The rows above are the state of October 28. The Data Dashboard, warning letters 2005 to April 2019, the archived safety communications and discontinuances, and EUA numbers were added on November 3 and 4 (below). The remaining gaps are listed at the end of this file.
+
+## Pre-upload fixes (October 29, 2026)
+
+From the full-size v0.0.7 test load and query battery. Outputs in `work/out-2026-10-29/`.
+
+- TPLC year labels (`pipeline/derived_views.py`): every TPLC year node has exactly one `rdfs:label`. Years already labelled by `tplc.ttl` (MDR report years) get no second label; years with only premarket or recall counts are labelled "`<code>` premarket and recall counts `<year>`".
+- Refreshed on one date (October 29): recalls (enforcement reports), recall database, 510(k), PMA, 21 CFR (eCFR) and recall class (`refresh.sh`), so recall, premarket and regulation links are taken from the same day.
+- Reference fallbacks (`scripts/reference_fallback.py`, new): every 510(k), PMA, HDE, De Novo or regulation IRI that a record links to but no input file labels gets one minimal node with its type, one `rdfs:label` naming the number and the kind of record that cites it, and an `ex:dataQualityNote` that FDA's data lacks it. PMA supplements cited without FDA's "S" prefix go to a separate file. Regulation numbers whose 21 CFR section exists link to that section. Added November 3: cited 21 CFR sections and parts missing from the current eCFR (mostly Quality System regulation sections retired when the QMSR took effect on February 2, 2026: 820.30, 820.100, 820.198 ...) get a fallback `ex:CFRTitle21Section` / `ex:CfrPart` node, linked to its part when the part exists.
+- X-ray assembler placeholders (`pipeline/common.py`, `xray_assembler.py`): values made only of "no value" tokens (N/A, N/A=NOT APPLICABLE and its fixed-width cuts, 0000 N/A, NA, N.A., NONE, UNKNOWN, NO-PHONE, runs of zeros) write no triple; real text that merely contains such letters is kept whole.
+- Lower-case MAUDE product codes (`scripts/patch_event_ttl.py`): three-letter codes typed in lower case ("psv") are upper-cased on the report and on hub blocks, and `ex:hasProductCode` uses the canonical `iri.product_code` IRI.
+- GUDID PMA supplements (`udi.py`): GUDID writes supplement numbers as digits only ("014"); they are prefixed with "S" so the UDI device links to the supplement node `pma.py` mints. Supplement "000" (the original approval) links to the base PMA only.
+
+## New sources (November 3 and 4, 2026)
+
+Every output passes `riot --validate`; triple counts from the transforms.
+
+| Source | Module | How it is fetched | Records | Triples |
+|---|---|---|---:|---:|
+| Medical Device Development Tools (qualified MDDTs) | `mddt.py` | fda.gov MDDT table + each tool's Summary of Evidence and Basis of Qualification PDF | 21 tools (20 with summary text) | 294 |
+| ASCA accredited testing laboratories and accreditation bodies | `asca.py` | cfStandards ASCA lists (current and withdrawn laboratories, accreditation bodies) + detail pages | 98 laboratories, 23 withdrawn, 5 bodies; 2,616 scope entries | 44,353 |
+| 510(k) Third Party Review organizations | `third_party_review.py` | cfThirdParty organization pages, eligible devices by panel, fda.gov accreditation status table | 8 (7 recognized, 1 withdrawn); 644 regulations, 1,556 product codes | 13,472 |
+| Data Dashboard: inspection classifications | `dd_inspections.py` | Data Dashboard API, ProductType Devices | 33,190 inspections (50,601 rows) | 839,212 |
+| Data Dashboard: inspection citations | `dd_citations.py` | Data Dashboard API, Program Area Devices and Radiologic Health | 52,439 citations; 784 citation references | 845,858 |
+| Data Dashboard: compliance actions | `dd_compliance_actions.py` | Data Dashboard API, ProductType Devices | 1,844 (1,819 warning letters, 20 injunctions, 5 seizures) | 42,801 |
+| Data Dashboard: import refusals | `dd_import_refusals.py` | Data Dashboard API, Devices and Radiological Health + FDA's public charge list | 37,491 refusals; 287 charges | 1,117,096 |
+
+- IRIs come from new `pipeline/iri.py` minters: `mddt`, `asca_testing_laboratory`, `asca_accreditation_body`, `asca_scope`, `third_party_review_organization`, `fda_inspection`, `fda_inspection_citation`, `fda_citation_reference`, `fda_compliance_action`, `import_refusal`, `import_refusal_charge`. Moving the modules from local `iri._instance` calls to these minters left every output byte-identical (sha256).
+- New classes and properties are declared in the "November 4, 2026" block of `ontology/ontology.ttl`. `ex:productArea`, `ex:fdaCenter`, `ex:relatedPageUrl` and `ex:summaryUrl` are now shared and lost their `rdfs:domain`.
+- The Data Dashboard API needs a user name and key; the PI's key is read from an environment file on the build VM at request time and is never logged, cached or written to an output. Requests are 1 per second.
+- Individuals: firms whose name reads as a person (degree or honorific; for Bioresearch Monitoring inspections, any personal-name shape) keep no name, street address, city, ZIP, FEI or profile URL, in all four Data Dashboard sources. MDDT, ASCA and third party review contact persons are not read.
+- Joins: inspections, citations, compliance actions and import refusals link to `iri.manufacturer(fei=...)`, the node registration/listing and the recall database use; citations link to 21 CFR sections and parts; import refusals link to the device product code only when FDA's import code is 2 digits plus a CDRH product code (37,169 of 37,491); compliance actions of type warning letter link to `ex:WarningLetter` nodes by MARCS-CMS number (`ex:relatedWarningLetter`): 441 of 1,819 (391 with the same issue date, 50 by number only), against the warning-letter file with the archive years; 511 of 1,819 (453 same date, 58 by number only) after the November 11 rebuild that also reads `warning_letters_archive.ttl` (below).
+
+## FDA web archive (PI approval, November 3, 2026)
+
+For FDA records that fda.gov no longer serves, the pipeline now reads FDA's official web archive (Pagefreezer, and Archive-It collection 7993) and web.archive.org snapshots that fda.gov itself links (`pipeline/sources/_archive.py`: cached, at least 3 s between Archive-It requests, backoff on throttling). No proxies or other networks are used to get around a block. An archive-derived record has `ex:sourceUrl` = the archive URL, `ex:archivedFrom` = the original fda.gov URL, and an `ex:dataQualityNote`.
+
+| Source | Added from the archive | Now |
+|---|---|---|
+| Warning letters | 2005 to April 2019 (Archive-It year listings and letter pages): 1,940 letters | 2,216 device letters, 57,745 triples |
+| Safety communications | safety communications 2011-2022 and letters to health care providers 2016-2022 (Pagefreezer and Archive-It): 271 records | 328 records |
+| Device discontinuances | 2020-2024 rows (the web.archive.org snapshot fda.gov links) | 69 archived rows |
+| Device EUA letters | the 8 letters (2009 H1N1 EUAs) FDA links only on Archive-It | all 646 letters read |
+
+Warning letters 2013 (fixed November 4, 2026): the first archive run kept only 11 device letters for 2013. The newest readable capture of the 2013 year listing (Archive-It 20190422151413) links its other pages as `2013/ucm20035841.htm?Page=N` instead of `2013/default.htm?Page=N`, and `fetch_archive` only recognized the second form, so it read page 1 alone (50 of 682 letters). It now follows the pager's own links (`pager_links`, with a self-test on the verbatim 2013 pager); the other 13 pages and the 2013 device letter pages were read (184 new archive requests, none failed), giving 182 device letters for 2013 (the Data Dashboard lists 189 device warning letters with a 2013 action date). The other years read every page their pager lists, and in 2011 to 2015 every listed letter's issue date falls in its listing year. Re-running `dd_compliance_actions` raised its warning-letter links from 427 to 441 (2013: 2 to 16; most 2013 letter pages state no MARCS-CMS number, as in 2009 to 2012).
+
+## EUA numbers (November 3 and 4, 2026)
+
+`device_eua.py fetch-letters` reads each EUA row's letter once (letter of authorization, else its first revision or revocation letter) and keeps only the EUA number(s) and the letter date (`eua_letters.tsv`); the letter text is never stored. `ex:euaNumber` is on 371 of the 648 rows with a letter; `ex:documentDate` on 642 letters. The other letters state no EUA number in their text (including the 2009 H1N1 letters read from the archive) or have no text layer. A date on a line of its own before the salutation is taken as the letter date, so an archived page's notice ("As of June 23, 2010, the EUAs have been terminated") is not read as one.
+
+## 510(k) summary PDF links (in progress until November 5, 2026)
+
+`devices_fda.py fetch-k510` checks each 510(k) summary or statement PDF with an HTTP HEAD request at 1 request per second; `ex:summaryUrl` is written only where FDA answered 200 with a PDF, and `ex:statementOrSummary` comes from the 510(k) records. The run ended on November 5, 2026 at 14:25: 171,620 numbers checked, 88,369 PDFs found, none refused; `devices_fda.ttl` is then rebuilt and validated.
+
+## MAUDE scrubbed narratives (November 3 and 4, 2026)
+
+MAUDE event narratives are released only as `event_text_scrubbed.ttl` (59,190,550 narratives, 32.6 GB; `scripts/scrub_maude_text.py`), never the unscrubbed `event_text.ttl`. The scrub rules were extended (v2, `pipeline/scrub.py`, `pipeline/scrub_words.txt`, `pipeline/scrub_verbs_1.txt` to `_4.txt`) after a leak check of the first scrubbed file: any date after DOB / date-of-birth wording, US-phone- and SSN-shaped numbers not tied to a device, part or report label, and a word after a title (DR, MR, MRS, NURSE ...) unless it is a common word or a dictionary verb form. The independent leak check (its own patterns, not the scrub rules) over the v2 file found 7 matches outside the benign categories; all 7 are dictionary words after a title (POST-PROCEDURE, RE-MADE, REBROKE), judged benign, and v2 was installed. `riot --validate` passed.
+
+## More FDA device sources (November 5, 2026)
+
+| Source | Module | How it is fetched | Records | Triples |
+|---|---|---|---:|---:|
+| CDRH FOIA Electronic Reading Room | `foia_reading_room.py` (new) | `readingroom.cfm` listing, 500 rows per page (1 request); listing metadata and document links only | 177 | 2,300 |
+| Safety communications before 2011 | `safety_comms.py` (`fetch_archive`) | FDA's archived page "Safety Communications Issued Prior to 2011" (Archive-It collection 7993) and the sections it links | 164 added (492 in the file) | 6,928 (whole file) |
+| PMA and supplement document PDFs | `devices_fda.py fetch-pma` | one HTTP HEAD per candidate PDF at 1 request per second, resumable (`pma_pdf_heads.tsv`) | 57,373 PMA and supplement numbers to check (run started November 5, 2026 14:26) | in `devices_fda.ttl` |
+
+- FOIA reading room: one record per posted document (`ex:FOIAReadingRoomRecord`, `iri.foia_reading_room_record`, keyed on FDA's media id or the PDF file name): title, document type and reading-room category as published, file size, date posted, document URL (`ex:url`; the document itself is never downloaded or stored), 510(k)/De Novo and PMA numbers (`ex:mentionsK510Record` 123 of 126 distinct numbers join to `k510.ttl`, `ex:mentionsPMARecord` 2 of 2 to `pma.ttl`), the Section 522 order number linked to its study node in `postmarket_522.ttl` through `ex:orderNumber` (`ex:mentionsPostmarket522Study`), and a firm named in a letter's title (`ex:namesFirm`, 10 records, 8 firm-name nodes). The listing gives no product codes or FEI numbers. Two FDA staff presentations are titled with the presenter's surname; the name is dropped and the record carries an `ex:dataQualityNote`.
+- Safety communications before 2011: the archived page lists FDA's archived sections; "Archived Medical Device Safety Communications" (`ex:communicationType "Safety Communication"`), "Archived Public Health Notifications" ("Public Health Notification", published until 2009) and "Archived Patient Alerts (Medical Devices)" ("Patient Alert", until 2010) are read with the same fields and rules as the 2011-2022 archive part (archive URL in `ex:url`/`ex:sourceUrl`, `ex:archivedFrom`, `ex:dataQualityNote`). Old-site tables give two-digit years ("9/2/83"); the cell's `data-value="19830902"` is used. Not read: "Archived Tips and Articles on Device Safety" (consumer articles) and "Information About Heparin" (a topic page). Rows read: 11 safety communications (2001-2009), 132 Public Health Notifications (1983-2009) and 21 Patient Alerts (1999-2010), 164 records, every page read from Archive-It (166 archive requests, none failed; Archive-It throttled 3 times and the reader slowed down as designed); issue years 1983-2010 (2 rows give no date on the listing). One listed Public Health Advisory links to a CDER page and is kept as listed. The safety communications file now holds 492 records.
+- PMA documents: the pma.cfm detail pages link `cdrh_docs/<folder>/<number><supplement><letter>.pdf` (A approval order, B Summary of Safety and Effectiveness, C labeling, D labeling part 2; folder rule as for 510(k)s; checked on 23 detail pages). Every PMA and supplement number gets one HEAD for its B file and, where it exists, one each for A, C and D. `ex:summaryUrl` (B) with `ex:summaryDocumentType "Summary of Safety and Effectiveness"`, `ex:approvalOrderUrl` (A) and `ex:labelingUrl` (C, D) are written on the `ex:DeviceFDARecord` nodes. Fix: the older verified URL list held approval orders (A files) for some PMAs, which `devices_fda.ttl` wrote as `ex:summaryUrl`; they are now `ex:approvalOrderUrl`. The run checks newest first, originals and supplements other than 30-day notices (26,496) before the 30,877 30-day notices, and is expected to end about November 6, 2026 08:00; `devices_fda.ttl` is then rebuilt and validated. A transform over the first 846 answers wrote 61 SSED links, 129 approval orders (including the older list's) and 91 labeling links, and passed `riot --validate`.
+- New terms (ontology, "November 5, 2026" block): `ex:FOIAReadingRoomRecord`, `ex:readingRoomCategory`, `ex:fileSize`, `ex:namesFirm`, `ex:mentionsPostmarket522Study`, `ex:labelingUrl`, `ex:summaryDocumentType`. New minter: `iri.foia_reading_room_record`.
+
+## MAUDE report IRIs keyed on the MDR report key; e-mail scrub of all MAUDE text (November 8, 2026)
+
+**Breaking IRI change for MAUDE reports (vs v0.0.5).** MAUDE report IRIs were minted from the report number (`id/report/3003442380-2026-010367`). FDA gives one report number to several MDR records, so distinct records were merged into one node: on the 2026-11-04 snapshot, 26,557,759 MDR report keys sat on 25,810,958 report nodes (about 746,800 records folded into another record's node; for example one report number carried 8 report keys, two event types, 6 event dates and 7 lot numbers). From v0.0.7 every MDR record is its own `ex:MAUDEReport`, minted by `iri.report()` from FDA's `MDR_REPORT_KEY`: `id/report/<mdr report key>` (for example `id/report/50835592`). Queries that hard-code v0.0.5 report IRIs must look the report up by `ex:reportNumber` instead. Counts of "MAUDE reports" are now counts of MDR records; counting distinct `ex:reportNumber` values gives report numbers.
+
+- The report number is kept as the literal `ex:reportNumber` (existing predicate) and in the `rdfs:label` ("MAUDE <report number> (<event type>)"); the key is `ex:mdrReportKey` and `ex:sourceRecordId`. Records without a report key are skipped (counted in the transform's `skipped`).
+- The narratives (`event_text_scrubbed.ttl`) sit on the same key-based IRIs: `event.py` writes each record's `mdr_text` (openFDA device/event) under the subject of that same record, so the structured parts and the narratives join one to one. Device, patient, problem and premarket facts are literals or links inside each report's own block. No other module links to a MAUDE report IRI (UDI-DI is a literal on the report; TPLC aggregates and derived views do not reference report IRIs; the saved queries in `docs/queries` and the capstone queries do not hard-code report IRIs).
+- Ontology comments on `ex:MAUDEReport`, `ex:mdrReportKey` and `ex:reportNumber` updated; `iri.py` self-test pins the new minter.
+
+**E-mail addresses removed from every MAUDE text literal.** The v0.0.7 check found 74 lines with e-mail addresses in short structured MAUDE fields (manufacturer name, catalog and model number, generic and device name, removal/correction number), outside the narrative scrub. `scrub.scrub_email()` (new) replaces any address with `[EMAIL REMOVED]`; its pattern covers both the narrative rule and the release check's pattern. `event.py` applies it to every MAUDE text value, `scrub.scrub_text()` starts with it, and `scripts/scrub_maude_text.py scrub` applies it to every literal line, not only narratives. `scripts/scrub_maude_text.py emailcheck` (new) counts addresses in every literal of any Turtle file.
+
+**Other fixes before release.**
+- Import refusals: shipment IDs that differ only in characters the slug drops (`GJ8-0223708-2/12/1]`, `^`, `[`, `\`) had been merged into one node. `iri.import_refusal()` keeps the slug for IDs in FDA's usual layout and appends the first 8 hex digits of the SHA-1 of the exact ID otherwise, so every distinct shipment ID is its own node.
+- Registration and listing: one `rdfs:label` per establishment (the first listing's name). FDA lists establishment 3008849319 under two names ("Canady Biotechnology LLC" and "US MEDICAL INNOVATIONS, LLC", checked in the 2026-11-04 download); both stay as `ex:name`.
+- Ontology: the five properties labelled in both `ontology.ttl` and `udi_extension.ttl` (`ex:recordStatus`, `ex:dunsNumber`, `ex:identifierId`, `ex:publicDeviceRecordKey`, `ex:issuingAgency`) keep only the `ontology.ttl` label.
+
+**Rebuilt and checked on November 8, 2026** (same 2026-11-04 downloads, copied back from the archive and MD5-checked; `scripts/v007d/ft7d/v7d_regen.sh`, checks `v7d_verify.sh`, results in `work/fulltest-v007d/verify/`):
+- MAUDE: 26,557,775 records -> 995,136,784 triples (0 skipped; the 16 records skipped before had report numbers that were not URI-safe and now get a node from their key). 26,557,775 distinct report IRIs = 26,557,775 distinct `ex:mdrReportKey` values = report blocks, and every IRI equals its block's key; 25,810,973 distinct report numbers. The old example report number 3003442380-2026-010367 is now on 8 report nodes. Parts: 12 files, 43 GB, `riot --validate` OK on each.
+- Narratives: 59,637,673 narratives in 25,868,869 blocks, one block per record; every narrative subject is an existing report IRI (0 orphans); leak check unchanged from November 4 (7 non-benign matches, all dictionary words); `riot --validate` OK.
+- E-mail: 74 addresses removed from structured MAUDE fields (`ex:deviceManufacturerName` 23, `ex:genericName` 18, `ex:modelNumber` 11, `ex:catalogNumber` 9, `ex:deviceName` 7, `ex:removalCorrectionNumber` 5, `ex:lotNumber` 1). 0 e-mail addresses left in any literal of the MAUDE parts and narratives, and in the ASR, legacy MDR and MedSun files (two patterns by grep, plus `emailcheck`).
+- Import refusals: 37,491 shipment IDs -> 37,491 distinct IRIs. Establishment 3008849319: one `rdfs:label`, both names as `ex:name`.
+- Self-tests (`run.py --selftest`, iri, scrub, event, registrationlisting, dd_import_refusals, patch_event_ttl), `scripts/query_contract.py` and `scripts/structure_lint.sh` pass.
+
+## Warning letters 1996-2004 and 2019-2020 from FDA's web archives; radiation corrective actions and HUD designations re-checked (November 11, 2026)
+
+New file **`warning_letters_archive.ttl`** (`warning_letters.transform(only_via=("newsite", "foi"))`): 2,741 device warning letters that
+`warning_letters.ttl` (current index from 2021, old-site year listings 2005 - April 2019) does not have. It is a separate file because
+the 2026-11-04 download of the current index is no longer on the VM, so `warning_letters.ttl` itself is kept exactly as loaded and tested.
+
+- **May 2019 - December 2020** (`fetch_archive_newsite`): FDA's listing for this period is a JavaScript table whose data no archive kept,
+  but the letter pages are listed in the CDX index of FDA's official archive (Archive-It collection 7993, captures September 2019 -
+  December 2020): 1,104 letter URLs dated 2019-2020 (all FDA centers). fda.gov still serves 1,100 of them (read from fda.gov, 1 request
+  per second; the other 4 from the archive copy). The device filter (Issuing Office / Product) keeps 75; 10 are already in
+  `warning_letters.ttl` (the January - April 2019 letters of the old-site listing, matched on issue date and company), so **65** are new
+  (25 issued in 2019, 40 in 2020; 4 of them are January - April 2019 letters missing from the last capture of the 2019 old-site listing, 61 are from May 2019 - December 2020). Same IRI rule as current letters (`warning-letter/<CMS>_<MMDDYYYY>`), MARCS-CMS number, Issuing
+  Office, Product, firm address, FEI, cited 510(k)/PMA numbers, product codes and 21 CFR citations, as for current letters; no
+  ex:letterSubject (these pages show none). 64 of the 65 have a Data Dashboard compliance action with the same case number
+  (`dd_compliance_actions.ttl`); FDA reuses a case number for later letters of the same case, so two of them share a number with an older
+  letter in `warning_letters.ttl` (different dates, different letters). `dd_compliance_actions.transform` now also reads
+  `warning_letters_archive.ttl`; the release file was rebuilt from its 2026-11-04 download on November 11 (see "Compliance actions
+  linked to the archive letters" below).
+- **November 1996 - December 2004** (`fetch_archive_foi`): FDA's Electronic FOI Reading Room month index
+  (`www.accessdata.fda.gov/scripts/wlcfm/date.cfm` and `date_archive.cfm`, linked from `www.fda.gov/foi/warning.htm`), read from
+  web.archive.org (fda.gov links its archive.org copy from the FDA.gov Archive page; Archive-It 7993 has none of these pages): all 98 months,
+  7,584 listed letters, 2,676 device letters (same filter). Company, issue date, issuing office, subject and the letter file are from
+  the index; letters posted after June 25, 2001 also have an HTML page, read from web.archive.org for identifiers only (861 of 862
+  read); 1,814 letters exist only as PDFs and keep the index metadata with a note. IRIs from the file name
+  (`warning-letter/g4618d_htm`, as for old-site `ucm` pages). Letters to persons (degree, "Last, First" with no organization word, clinical
+  investigator subject, salutation): 140 records with no name, address, FEI, firm link or URL.
+- No body text, recipient names or titles, signatories or e-mail addresses are stored (0 e-mail addresses in the file).
+- `reference_fallback_wl_archive.ttl` (new, 52 nodes): the cited references no release file names (510(k) K022830, K033765 and K171343, and 49 cited 21 CFR parts or sections that the current eCFR lacks: retired or non-device parts such as 1270, and typos in the letters themselves such as "21 CFR 820.901" or "21 CFR 5900.12", kept as cited), made by
+  `scripts/reference_fallback.py` and keeping only IRIs that `reference_fallback.ttl` does not already name.
+- Checked: self-tests (`warning_letters.py`, `dd_compliance_actions.py`, `rh_actions.py`, `run.py --selftest`), `riot --validate`,
+  `structure_lint.sh`, `query_contract.py`; one rdfs:label per letter; provenance on every letter; scratch TDB2 store with the new file and
+  the release files it links to (`k510`, `pma`, `classification`, `product_code_fallback`, `cfr`, `reference_fallback`, `registrationlisting`,
+  `dd_inspections`, `devices_fda`, `warning_letters`, `dd_compliance_actions`): one rdfs:label on each of the 2,741 letters; 1,147 / 1,147 citesCfrPart, 3,027 / 3,027 citesCfrSection, 53 / 53 mentionsK510Record, 6 / 6 mentionsPMARecord, 6 / 6 hasProductCode and 2,558 / 2,558 hasRecipientFirm links reach a typed, labelled node; 3 of 42 FEI targets of ex:hasManufacturer have a node, as for the release's own warning letters (40 of 89; FEI IRIs are identifier hubs); 64 of the 65 letters of 2019-2020 share the case number of a Data Dashboard compliance action (78 device warning-letter action nodes May 2019 - Dec 2020).
+- `_us_date` reads two-digit years 70-99 as 19xx (the FOI index writes 3/02/98).
+
+**Radiation-emitting product corrective actions** (`rh_res.cfm`): retried 2026-11-11 22:44 UTC after FDA support reported it working on
+October 20. The form page loads (with Akamai Bot Manager cookies); every search (five variants, also with the form's cookies and Referer)
+still answers HTTP 503 "currently unavailable" from AkamaiNetStorage; a request from a second network also got a server error. Not
+worked around; `rh_actions_derived.ttl` stays the stand-in (module docstring updated).
+
+**HUD designations**: re-checked 2026-11-11: the HUD Designation Program page (content current 12/15/2023), its FAQ, laws/guidances and
+education pages, and their 2010-2019 versions under `ForIndustry/DevelopingProductsforRareDiseasesConditions/DesignatingHumanitarianUseDevicesHUDS/`
+(web.archive.org and Archive-It CDX) contain no list of designations; the OOPD searchable designation database is for drugs and biologics;
+21 CFR 814 subpart H does not require FDA to publish designations (unlike 21 CFR 316.28 for orphan drugs). No public list exists; nothing added.
+
+## Compliance actions linked to the archive letters; MAUDE narratives in parts (November 11, 2026)
+
+The PI approved `warning_letters_archive.ttl` and `reference_fallback_wl_archive.ttl` for v0.0.7 (without a full reload of the test
+store) and a rebuild of `dd_compliance_actions.ttl` against them.
+
+- **`dd_compliance_actions.ttl` rebuilt** (transform only) from its 2026-11-04 Data Dashboard download, restored from the PI's archive
+  (MD5 equal to the archive copy; sha256 equal to the download manifest); no API request, so the retrieval date (2026-11-05, from the
+  manifest) is unchanged. 1,844 actions as before (same IRIs, same labels, provenance and every other triple unchanged); 42,872 triples
+  (42,801 before). `ex:relatedWarningLetter`: 512 links (441 before; +71, none removed): 511 of 1,819 warning-letter actions linked
+  (453 with the same issue date, 58 by number only). The 71 new links reach 63 letters of 2019-2020 in `warning_letters_archive.ttl`
+  (24 of 2019, 39 of 2020). Of the 64 archive letters that share a case number with a compliance action, the 64th (`491979_05162019`,
+  issued 2019-05-16) is not linked: its case's only action (2016-05-23) has a letter of the same date in `warning_letters.ttl`, which the
+  module prefers. Case 543749 (action 2018-01-10) is linked by number only to both its 2018-01-09 letter and its 2019-03-15 letter.
+  Checks: `riot --validate`, self-test, `structure_lint.sh`, `query_contract.py`; one rdfs:label per action; every link target is a
+  `ex:WarningLetter` subject of `warning_letters.ttl` or `warning_letters_archive.ttl`.
+- **MAUDE narratives uploaded in parts.** `event_text_scrubbed.ttl` (32.58 GB) is uploaded as `event_text_01.ttl` .. `event_text_08.ttl`
+  (at most 4 GiB each, as in v0.0.6, whose 8 parts of the same names they replace), cut only between complete subject blocks; every part
+  is a standalone Turtle file with the file's 5 prefixes and passes `riot --validate`. Triples 9,705,014 + 8,308,807 + 7,809,705 +
+  8,480,591 + 6,803,190 + 7,331,725 + 7,180,873 + 4,017,768 = 59,637,673, equal to the single file. The content is the file loaded and
+  tested in v007d; only the packaging changed.
+
+## 510(k) predicate links, HUD designations, scheduled monitoring (November 15, 2026; PI decision)
+
+Not uploaded, merged or tagged. Both new files are listed for the upload (ADD) once checked; `k510_predicates.ttl` only after the
+summary PDF crawl has finished.
+
+**510(k) predicate and reference devices** (`pipeline/sources/k510_predicates.py`, new file `k510_predicates.ttl`). FDA publishes no
+structured predicate list; the 510(k) summary or statement PDF that Devices@FDA links for each 510(k) (`ex:summaryUrl` in
+`devices_fda_with_pma.ttl`, 92,859 summaries) usually names the predicate device(s) by number, and since about 2014 often reference
+devices.
+
+- Fetch: every summary PDF, 1 request per second, newest first, resumable (a file present is never requested again; 404 final; refusals
+  retried after 30 s, 2 and 10 min; stop after 10 refused in a row; stop before free disk falls below 105 GB). Started November 15, 2026
+  22:25; about 0.93 PDFs per second and 1.3 MB per PDF, so about 27 hours and 120 GB (projected free space at the end about 117 GB).
+  PDFs in `work/downloads-2026-11-04/k510_summaries/`, extracted text cached next to them.
+- Extraction "pdftotext+regex v1": K + 6 digits, DEN + 6 digits, P + 6 digits (with /Snnn), also spaced, hyphenated and OCR-tolerant
+  forms ("K 123456", "K-123456", "KO12997"); the summary's own number is never a link. Confidence high = inside a Predicate Device(s) /
+  Legally marketed device(s) / Reference Device(s) section; medium = in a substantial-equivalence or predicate passage; low = elsewhere
+  in the summary. A number labelled "(Reference)" or "used as a reference device" is a reference device (`ex:referenceDevice`), every
+  other one a predicate (`ex:predicateDevice`). P numbers only with high or medium confidence and not after "Model", "Part Number",
+  "Catalog" or "SKU" (part numbers of that form were read as PMAs in the first crawl test).
+- Model: `<citing 510(k)> ex:predicateDevice | ex:referenceDevice <target>` plus one annotated statement per link
+  (`ex:PredicateDeviceLink` / `ex:ReferenceDeviceLink`, subclasses of `ex:ExtractedLink` and `rdf:Statement`) with `rdf:subject`,
+  `rdf:predicate`, `rdf:object`, `ex:citedNumber`, `ex:citedAs` (only when written differently), `ex:extractionSection`,
+  `ex:extractionMethod`, `ex:confidence`, `ex:sourceDataset`, `ex:sourceRecordId`, `ex:sourceUrl` (the PDF) and `ex:retrievedAt`.
+  Targets through `iri.k510` / `iri.pma` (base PMA) / `iri.de_novo`; a target or citing 510(k) that no release file defines gets one
+  labelled fallback node with an `ex:dataQualityNote` (the `reference_fallback.py` pattern); nodes defined elsewhere get no label here.
+  New ontology terms (one label and one comment each): `ex:predicateDevice`, `ex:referenceDevice`, `ex:ExtractedLink`,
+  `ex:PredicateDeviceLink`, `ex:ReferenceDeviceLink`, `ex:citedNumber`, `ex:citedAs`, `ex:extractionSection`, `ex:extractionMethod`,
+  `ex:confidence`; IRI minter `iri.k510_device_link`.
+- Image-only PDFs (fewer than 100 characters of text) yield no links and are listed in `k510_predicates.ocr_backlog.tsv` for OCR on Star
+  HPC (no OCR engine on the VM). In a random sample of 200 summaries over all years 45 were image-only (mostly before 2005); among the
+  first 1,890 crawled (2025-2026) none of the new ones were.
+- **Gold sample** (50 summaries drawn at random, seed 20261116, from the first 1,302 crawled PDFs, excluding the 244 used while writing
+  the rules; all 2025-2026 summaries with a text layer; judged by reading each PDF's text): 47 name at least one other submission
+  number, 3 none. 100 links extracted. Precision: predicate links high 62/68 (91%), medium 3/3, high + medium 65/71 (92%), low 2/7
+  (29%); reference links high 21/22 (95%); a predicate or reference device of the summary regardless of kind, high + medium 90/93
+  (97%). Recall: 67 of 70 predicates found as predicates (96%; 65, 93%, with high or medium confidence), 21 of 24 reference devices
+  (88%). Errors: 4 reference devices written as predicates (a "Reference:" line inside a predicate list; reference devices listed after
+  the predicate under one heading), 1 primary predicate written as a reference device, 2 numbers that are neither (leveraged test data;
+  a sterilization pouch's clearance), 1 number mistyped in the summary's own table, 2 predicates in form fields that pdftotext breaks
+  up with underscores. Low-confidence links are mostly not predicates: filter on `ex:confidence`. Results:
+  `work/v007e/gold_fresh_results.md` on the VM. Older (scanned) summaries are not in this sample.
+- Test on the 1,890 PDFs crawled so far (`scripts/v007e_pred_finalize.sh`, test mode): 1,845 with text, 1,642 with links, 1,557 with a
+  high- or medium-confidence predicate; 3,844 links (predicate 2,358 high, 283 medium, 381 low; reference 796 high, 23 medium, 3 low),
+  53,931 triples; riot, self-tests, `structure_lint.sh`, `query_contract.py` OK; scratch TDB2 with `k510`, `pma`, `denovo` and the
+  `reference_fallback` files: every link resolves to a typed, labelled node (numbers missing from FDA's data reach labelled fallback nodes), 0 nodes with two labels,
+  provenance on every link node, every annotation asserted.
+- `scripts/schedule/k510_crawl_watch.sh` (cron) starts `scripts/schedule/k510_pred_finalize.sh` when the crawl completes: the same
+  checks on the full set, then `RELEASE_INPUTS.txt` and `UPLOAD_PLAN.md` (ADD `k510_predicates.ttl`, backups first) and
+  `monitor/k510_predicates_finalize.md`. Since November 16 in two passes with OCR on Star in between (see the OCR section below).
+
+**HUD designations** (`pipeline/sources/hud_designations.py`, new file `hud_designations.ttl`). FDA publishes no list (see November 11),
+but each HDE's Summary of Safety and Probable Benefit states the HUD designation number and date. For the 87 original HDEs in
+`hde.ttl`: one request per HDE database page, then the summary (B) and approval order (A) PDFs that the page links (72 pages link a
+summary, 78 an order; 70 summaries and 67 orders have text). Result: 65 `ex:HUDDesignation` nodes linked from 65 HDEs
+(`ex:hasHUDDesignation`), 51 with a designation number (`ex:hudDesignationNumber`), 63 with a date (`ex:designationDate`), 47 with the
+short indication; 14 HDEs give a date but no number (node keyed on the HDE, labelled as such). Not linked: 17 HDEs with no readable
+document (no PDF linked, or image-only: 13 PDFs of 11 HDEs in `hud_designations.ocr_backlog.tsv`) and 5 whose summary leaves the
+fields blank, writes "Filed:" or is garbled. Sample check of 15 linked HDEs against the PDF text: every number and date that the
+excerpt shows is right (14 HDEs; the 15th was read from an approval order); a revised second designation date (H020008) is not kept.
+811 triples; riot, self-tests, `structure_lint.sh`, `query_contract.py` OK; scratch TDB2 with `hde.ttl`: 65 links, 0 untyped HDEs,
+0 nodes with two labels, provenance complete. New terms: `ex:HUDDesignation`, `ex:hasHUDDesignation`, `ex:hudDesignationNumber`,
+`ex:designationDate`, `ex:designatedIndication`; IRI minter `iri.hud_designation`. Listed in `RELEASE_INPUTS.txt` and `UPLOAD_PLAN.md`
+(ADD).
+
+**Scheduled monitoring and refresh** (`scripts/schedule/`, `docs/OPERATIONS.md`): daily health monitor (06:40), weekly fetch of the
+fast-changing sources with change detection (Saturday 01:10), monthly full refresh with full-size load and query batteries producing a
+release-candidate report (day 3, 02:20), and the 510(k) crawl watcher (every 30 minutes outside 09:00-12:00). None of them uploads,
+merges, tags or deletes; each runs vm-status first, defers when another project's JVM over 4 GB runs or disk would fall below need +
+100 GB, keeps JVMs at or below 8 GB, uses flock, nice and ionice, and lists older snapshots for PI-approved deletion. The weekly and
+monthly jobs do not start while the 510(k) PDF crawl runs. Installed in the crontab November 15, 2026 next to the four existing entries;
+first dry runs the same day (the monthly refresh is deferred for disk until older snapshots are released: it needs about 390 GB plus the
+reserve, 238 GB were free).
+
+## OCR of image-only 510(k) and HDE PDFs on Star HPC (November 16, 2026; PI approval)
+
+Not uploaded, merged or tagged. Scanned PDFs without a text layer were the remaining hole in both PDF sources; the build VM has no OCR
+engine, so the OCR runs on Hofstra's Star HPC (project space `device_design_knowledge`, conda-forge environment with ocrmypdf and
+tesseract, CPU only, no node pinned, no GPU) and only the text comes back to the VM. Originals stay on the VM; Star holds working copies.
+
+- **First batch** (Star job 121689, one task, 8 CPUs): the 13 image-only HDE PDFs and the 45 image-only 510(k) summaries of the crawl
+  test, `ocrmypdf --force-ocr` (many scans carry a stamp-only text layer that `--skip-text` would keep). 58 of 58 OCR'd; 2.4 s per
+  510(k) PDF (4.1 pages on average) and 6.3 s per HDE PDF. Results in `work/ocr-2026-11/out/` on the VM.
+- **Fallback in the transforms** (`k510_predicates.text_of()`, used by both modules): when pdftotext gives fewer than 100 non-space
+  characters, the PDF is read from `<stem>.txt` in the OCR batch folders named by `MDKG_OCR_DIR` (":"-separated, wildcards allowed;
+  the scheduled jobs default to `work/ocr-*`) or the transform's `ocr_dirs` argument (`src_run_pdf.py --ocr-dir`); a later folder wins,
+  OCR text under 100 characters is ignored. Results read from OCR text carry `ex:extractionMethod "ocrmypdf/tesseract+regex v1"` and
+  one confidence level less than the same reading from a text layer (high -> medium, medium -> low, low stays low), because OCR
+  misreads digits; a HUD designation node counts as OCR-derived when any of its values (number, date, indication) came from OCR text.
+  Results from text layers are unchanged (byte-identical blocks). `*.ocr_backlog.tsv` now lists only PDFs still without usable text
+  after OCR; `*.links.tsv` and `*.rows.tsv` gained an `extraction_method` column; the counts files report `text_pdfs_from_ocr`,
+  `links_by_method` (510(k)) and `read_from_ocr` (HUD). Self-tests cover the OCR lookup (both folder layouts, later folder wins, short
+  OCR text ignored, text layer preferred), the method and the confidence downgrade.
+- **HUD designations regenerated** with the first batch (`out-2026-11-04/hud_designations.ttl`; the previous files kept as
+  `hud_designations.*.pre-ocr`): 70 designations linked from 70 of 87 original HDEs (was 65), 53 with a designation number (was 51),
+  68 with a date (was 63), 48 with the short indication; 869 triples (was 811). The 7 OCR-derived nodes (H010005, H040005, H970004,
+  H970005, H980002, H980007, H990002; two of them gained a number, 03-0120 and 98-0027, from the scanned approval order) have
+  confidence "low"; the other 63 nodes are unchanged. No HDE PDF is left without text. riot OK; scratch TDB2 with `hde.ttl`: 70 links,
+  0 untyped, 0 nodes with two labels, provenance complete. `RELEASE_INPUTS.txt` and `UPLOAD_PLAN.md` updated (72,385 bytes; backups
+  `*.pre-ocr-hud`).
+- **510(k) OCR subset** (the 45 image-only summaries, scratch only): 44 read from OCR text, 1 still without text; 17 summaries with
+  links, 25 links (14 medium, 11 low after the downgrade; 9 summaries with a medium-confidence predicate), all targets resolve in a
+  scratch TDB2 store with `k510`, `pma`, `denovo` and the `reference_fallback` files (3 labelled fallback nodes), 0 problems.
+- **After the crawl** (`scripts/schedule/`): the watcher starts `k510_pred_finalize.sh first` (full transform and checks, release list
+  untouched) to write the OCR backlog, then `monitor/k510_ocr_needed.md` with the backlog, a Star estimate and the PC command
+  (`scripts\star\post_crawl_ocr.ps1`, which drives `ocr_batch.sh` mklist -> stage -> submit -> wait -> collect -> clean and then starts
+  `k510_pred_finalize.sh final` with `MDKG_OCR_DIR`); cron on the VM cannot drive the WSL relay through the PI's PC. With an empty
+  backlog the watcher starts `final` itself. See `docs/OPERATIONS.md`.
+- **Backlog estimate** (November 16, 58,700 of 92,859 PDFs crawled, newest first, down to 2007): pdftotext on up to 40 PDFs per decision
+  year found every summary from 1995-1999 image-only (36 of 36), 4 of 7 from 2001, 0 of 39 from 2002-2006 and 15 of 800 (about 2%) from
+  2007-2026. Weighted by the summaries listed per year: about 17,600 image-only summaries (roughly 16,000-21,000; the earlier random
+  sample of 200 gave 22.5%, about 20,900), nearly all from before 2002. On Star: about 176 array tasks of 100 PDFs at 2.4 s per PDF,
+  4 at once, about 3 hours of run time plus queue waits, and about 10-15 GB through the PC relay.
+
+## Verification of the 510(k) predicate links and HUD designations; upload to develop (November 17, 2026; PI approval)
+
+The PI approved adding `k510_predicates.ttl` (final build of November 17: 169,961 links from 92,859 summary PDFs, 18,583 of them
+read from OCR text), `hud_designations.ttl` (70 designations) and the new `ontology.ttl` terms to lakeFS `develop` on condition
+that they are first queried and verified. Not merged to main, not tagged.
+
+- **Ontology**: against the develop copy, 65 triples added and none removed (new terms only).
+- **Test load** into the v007d store (`tdb2.tdbloader`, 601 s): 2,395,470 + 869 + 2,340 triples parsed; the store grew from
+  1,525,119,039 to 1,527,515,443 distinct triples (+2,396,404: both files entirely new, plus the 65 ontology additions).
+- **Battery 9** (15 checks, `fulltest-v007d/battery9_report.md`), all pass: the known chains K192386 -> K162759 -> K080949 and
+  K080949 -> K061711, K022995, K012997, K033523 (K182010 cites K080949 as a reference device, as its summary does); every link
+  child and target typed (K510Record, PMARecord or DeNovoRecord) and labelled; 1,420 fallback targets for numbers not in FDA data,
+  each with one label; counts by kind, confidence and method equal to the finalize summary (predicate 95,938 high, 31,233 medium,
+  29,074 low; reference 13,177 / 475 / 64; 20,187 OCR-derived); 0 self-links; one label and full provenance (sourceUrl,
+  retrievedAt, sourceDataset) on every link node and HUD designation; 0 e-mail addresses in the new literals. HUD: 70 designations,
+  each linked from exactly one original HDE, no HDE with two; every dated designation (68) precedes the HDE's receipt and decision.
+- **Temporal check**: for 166,916 links between two 510(k) records, the cited device was decided first in 99.65%, the same day in
+  195 cases and later in 386 (0.23%; 0.05% at high confidence, 0.95% at low; 0.12% from text layers, 1.1% from OCR text). The later
+  ones are predicates still under review when the summary was written (168), numbers that did not yet exist - typos or misreads,
+  mostly low-confidence "elsewhere in the summary" readings (91), OCR forms such as "KI 60666" normalised to an impossible number
+  (87) and near-copies of the citing record's own number (39). Characteristics of the PDFs and of the reading, carried by the
+  confidence levels; filter on high or medium confidence, or on decision dates, for strict lineage.
+- **Product-code agreement** of citing and cited 510(k): 73% same code at high confidence (95% same code or review panel), 65%
+  medium, 53% low; reference devices 56% (93%).
+- **Saved queries** (`docs/queries/`, pass `query_contract.py` and `qparse`): `k510-predicate-lineage.rq` (two levels with
+  confidence; K162759 -> K080949 -> 4 predicates), `k510-devices-citing-a-predicate.rq` (K080949: K162759 as predicate, K182010 as
+  reference), `k510-predicate-recalls-by-product-code.rq` (predicates of a product code whose own 510(k) has recalls; KGN: 12
+  predicates, e.g. K152721 Cytal Wound Matrix with 5 Class II recalls) and `hde-hud-designations.rq` (70 HDEs).
+- **Upload** (guarded: exactly these 3 names, no `event_text*` or `*.pre-*` source): `lakectl fs stat` size and checksum equal to
+  the local MD5 for all three, `lakectl diff` 2 added + 1 changed, commit `3cbf0c93f896` on develop (metadata version=v0.0.7);
+  develop now holds 79 data files, 105,984,048,112 bytes; main unchanged (`b0479eaf7c20`).
+
+## E-mail scrub of all FDA text (November 17, 2026; PI decisions)
+
+The PI decided that every e-mail address in an FDA text literal is replaced by `[EMAIL REMOVED]` (the MAUDE marker), in every
+source, not only MAUDE; firm names and every other part of a value are kept. `common.no_email` / `text_lit` / `text_label` pass
+FDA text through `scrub.scrub_email` in `cfr`, `recall_db`, `recalls`, `registrationlisting`, `udi`, `dd_import_refusals` and
+`_ddapi`. Not merged to main, not tagged.
+
+- **First pass (standard pattern)**: 24,730 addresses. `recall_db.ttl` 24,548 (`ex:recallAction` 24,491, `ex:productDescription` 51,
+  `ex:reasonForRecall` 3, `ex:distributionPattern` 3), `udi.ttl` 115 (`ex:deviceDescription` 105, `ex:specialConditions` 6,
+  `ex:brandName` 2, `rdfs:label` 2), `cfr.ttl` 55 (`ex:regulationText`), `recalls.ttl` 9, `dd_import_refusals.ttl` 2
+  (`ex:companyName` 1, `rdfs:label` 1), `registrationlisting.ttl` 1 (`ex:address`). The six files were regenerated from the
+  2026-11-04 downloads with the patched transforms; each is byte-identical to a literal-only post-processing of the previous file.
+- **Three names became `[EMAIL REMOVED]`** (accepted by the PI): two UDI brand names (`ex:brandName` and the matching `rdfs:label`)
+  and one import-refusal company name (`ex:companyName` and its `rdfs:label`) consist of an e-mail address. The nodes keep one label.
+- **Second pass (broken forms the standard pattern misses)**: `scrub_email` now also applies three rules (counted separately by
+  `scrub_email_rules`), each match reviewed by hand before replacing:
+  - `email_split`: an address split by a space or comma before the TLD (`X@OWENS-MINOR .COM`, `X@IMRIS. COM`, `X@LIVANOVA,COM`,
+    `X@STENCYCLE COM`), inside the domain (`X@ART HREX.COM`, `X@TENE THEALTH.COM`) or before the @ (`SUPPORT @VARIAN.COM`,
+    `X(@GETINGE.COM`). The domain must start with a letter and end in a known TLD; a 2-letter TLD that is also an English word
+    after ". " only in lower-case text; not when the domain is HOME... or the word before " @" is prose (`EMAIL FROM @X.COM`).
+  - `email_truncated`: an address cut off by a field limit (`X@INTUSURG`, `X.Y@BROADSPIRE`): local part of 2+ letters, letters-only
+    fragment, not HOME..., and e-mail wording (EMAIL, MAIL, CONTACT, SEND ...) in the 80 characters before it, a removed phone number
+    in the 40 before it, or a mailbox-like local part (FIRST.LAST, a role word such as SUPPORT / SERVICE / RECALL / REGULATORY, or a
+    name + 3 digits).
+  - `email_at_word`: `NAME(AT)DOMAIN.TLD`, `[AT]`, `(DOT)`; spelled out (`X AT Y DOT COM`) only with com / org / net / edu / gov.
+  - Kept (self-tests): product, lot and facility names such as `2008K@HOME`, `MERLIN@HOME`, `K@HOME`, `Well@Home`, `DEVICES@FDA`,
+    `ORG@NIZER`, `HEALTH@FITNESS`, `CT@MRI`, `LOT@UNK`, `M@10645`, `10@523722`; rates and thresholds (`@ 5 mg`, `8V@1MS. NO`,
+    `@1300`); handles (`@HOME`, `X HANDLE: @...`); `TIBIAL (AT) ARTERY`; message IDs (`<uuid>@HPP`) and system names (`DEV@COM`,
+    `ROOT@STEALTH`).
+- **Second-pass matches (202 addresses)**: `recall_db.ttl` 155 (`ex:recallAction`: split 96, truncated 59); MAUDE `event_02.ttl` 2
+  (truncated personal addresses in `ex:removalCorrectionNumber`), `event_05.ttl` 4 and `event_09.ttl` 1 (a truncated
+  regulatory-reporting mailbox in `ex:catalogNumber`); narratives `event_text_01` 1, `_02` 4, `_03` 22 (mostly service-repair
+  approvals quoting hospital staff addresses), `_04` 2, `_05` 1, `_06` 6 (incl. 2 `NAME(AT)DOMAIN`), `_08` 2; `medsun_text.ttl` 2
+  (`ex:manufacturerResponse`). The rules change nothing in any other release file (all 79 objects scanned; the candidates the
+  checks reject were listed and reviewed: product, lot, facility and system names only).
+- **Applied** as a literal-only post-processing (`tmp-es2/bin/es_litscrub2.py`); `recall_db.ttl` is byte-identical to its
+  regeneration from the 2026-11-04 download with the patched code. MAUDE files were not regenerated.
+- **Verified** for every changed file: same lines (line pairs differ only by address -> marker inside string literals), riot clean,
+  same triple counts (narratives still 59,637,673 triples), sorted N-Triples diff and one-to-one pairing for `recall_db.ttl` and
+  `medsun_text.ttl`, one label per node unchanged, 0 addresses left under any rule, release-check pattern 0, self-tests,
+  `structure_lint.sh` and `query_contract.py` pass. Previous files kept as `*.pre-emailscrub` / `*.pre-emailscrub2`.
+- **Upload** (guarded: exactly these 17 names, CHANGE only, no `event_text.ttl` / `event_text_scrubbed.ttl` / `*.pre-*` source;
+  each object read back and its MD5 compared): `lakectl diff` 17 changed, commit `3cba84be3485` on develop (metadata
+  version=v0.0.7); main unchanged (`b0479eaf7c20`).
+
+## Remaining gaps
+
+| Gap | Reason |
+|---|---|
+| Humanitarian Use Device (HUD) designations | Closed November 15, 2026 for 65 of 87 original HDEs, 70 since the OCR of November 16: designation number and date read from the HDE summaries and approval orders (`hud_designations.ttl`; see above). FDA still publishes no list; designations that never led to an approved HDE are not covered, and 17 HDEs have no linked document or no designation fields. |
+| 510(k) predicate devices | Added November 15, 2026 from the summary PDFs (`k510_predicates.ttl`, after the crawl completes); image-only summaries (about 17,600, nearly all before 2002) are OCR'd on Star HPC before the final build (November 16 procedure; links from OCR text one confidence level lower). |
+| Radiation-emitting product corrective actions (`rh_res.cfm`) | Every search still returns HTTP 503 (retried November 11, 2026, after FDA support reported it working on October 20; the form page loads, every search variant gets AkamaiNetStorage's "currently unavailable" page). The derived view (`rh_actions_derived.ttl`) stands in. |
+| Warning letters May 2019 to 2020 | Closed November 11, 2026: 65 letters in `warning_letters_archive.ttl` (letter pages found through FDA's Archive-It index; see above). |
+| Warning letters before 2005 | Closed November 11, 2026 for November 1996 - December 2004: 2,676 letters in `warning_letters_archive.ttl` (FOI reading-room month index on web.archive.org; see above). Letters before November 1996 are on no index found. |

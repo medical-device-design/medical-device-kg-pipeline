@@ -15,7 +15,8 @@ Acquisition is BULK -- ~5.18M records across ~52 partitions; the old paging API
 would have been ~52,000 requests against the 25k skip ceiling (D9/D10).
 
 Every IRI is minted by iri.py; every literal by common.py. This module only
-decides WHICH triples a record has.
+decides WHICH triples a record has. String literals go through common.text_lit: e-mail
+addresses in FDA text are replaced by [EMAIL REMOVED] (PI decision 2026-11-17).
 """
 import os
 import sys
@@ -80,22 +81,22 @@ def transform(src, out, retrieved_at=None):
 
             pairs = [
                 ("a", "ex:UDIDeviceRecord"),
-                ("rdfs:label", common.lit(r.get("brand_name"))),
-                ("ex:brandName", common.lit(r.get("brand_name"))),
-                ("ex:companyName", common.lit(r.get("company_name"))),
-                ("ex:versionModelNumber", common.lit(r.get("version_or_model_number"))),
-                ("ex:catalogNumber", common.lit(r.get("catalog_number"))),
-                ("ex:deviceDescription", common.lit(r.get("device_description"))),
-                ("ex:publicDeviceRecordKey", common.lit(key)),
+                ("rdfs:label", common.text_lit(r.get("brand_name"))),
+                ("ex:brandName", common.text_lit(r.get("brand_name"))),
+                ("ex:companyName", common.text_lit(r.get("company_name"))),
+                ("ex:versionModelNumber", common.text_lit(r.get("version_or_model_number"))),
+                ("ex:catalogNumber", common.text_lit(r.get("catalog_number"))),
+                ("ex:deviceDescription", common.text_lit(r.get("device_description"))),
+                ("ex:publicDeviceRecordKey", common.text_lit(key)),
                 ("ex:devicePublishDate", common.date_lit(r.get("publish_date"))),
                 ("ex:publicVersionDate", common.date_lit(r.get("public_version_date"))),
-                ("ex:recordStatus", common.lit(r.get("record_status"))),
+                ("ex:recordStatus", common.text_lit(r.get("record_status"))),
                 ("ex:commercialDistributionStatus",
-                 common.lit(r.get("commercial_distribution_status"))),
+                 common.text_lit(r.get("commercial_distribution_status"))),
                 ("ex:commercialDistributionEndDate",
                  common.date_lit(r.get("commercial_distribution_end_date"))),
-                ("ex:publicVersionNumber", common.lit(r.get("public_version_number"))),
-                ("ex:publicVersionStatus", common.lit(r.get("public_version_status"))),
+                ("ex:publicVersionNumber", common.text_lit(r.get("public_version_number"))),
+                ("ex:publicVersionStatus", common.text_lit(r.get("public_version_status"))),
                 ("ex:deviceCountInBasePackage",
                  common.int_lit(r.get("device_count_in_base_package"))),
 
@@ -110,7 +111,7 @@ def transform(src, out, retrieved_at=None):
                 ("ex:isLabeledAsNoNRL", common.bool_lit(r.get("is_labeled_as_no_nrl"))),
                 ("ex:isDirectMarkingExempt", common.bool_lit(r.get("is_direct_marking_exempt"))),
                 ("ex:isPremarketExempt", common.bool_lit(r.get("is_pm_exempt"))),
-                ("ex:mriSafetyStatus", common.lit(r.get("mri_safety"))),
+                ("ex:mriSafetyStatus", common.text_lit(r.get("mri_safety"))),
                 ("ex:hasLotOrBatchNumber", common.bool_lit(r.get("has_lot_or_batch_number"))),
                 ("ex:hasSerialNumber", common.bool_lit(r.get("has_serial_number"))),
                 ("ex:hasExpirationDate", common.bool_lit(r.get("has_expiration_date"))),
@@ -124,7 +125,7 @@ def transform(src, out, retrieved_at=None):
             pairs.append(("ex:requiresSterilizationPriorToUse",
                           common.bool_lit(ster.get("is_sterilization_prior_use"))))
             for method in common.as_list(ster.get("sterilization_methods")):
-                pairs.append(("ex:sterilizationMethod", common.lit(method)))
+                pairs.append(("ex:sterilizationMethod", common.text_lit(method)))
 
             # labeler (DUNS) -- a different key space from FEI-based Manufacturer;
             # kept separate on purpose (see docs/udi-ingest.md).
@@ -153,12 +154,21 @@ def transform(src, out, retrieved_at=None):
                 elif u.startswith("P") or u.startswith("N"):
                     pairs.append(("ex:relatedPMARecord", _ref(iri.pma(num))))
                     supp = str(sub.get("supplement_number") or "").strip()
+                    # GUDID writes the supplement number as digits only ("014"); FDA PMA data
+                    # (pma.py, verbatim openFDA supplement_number) writes "S014". Use FDA's form
+                    # so the link reaches the PMA supplement node; values that already carry
+                    # the "S" are kept as they are. Supplement "000" is GUDID's way of saying the
+                    # original approval, which the base PMA link above already covers.
+                    if supp.isdigit() and int(supp) == 0:
+                        supp = ""
+                    elif supp.isdigit():
+                        supp = "S" + supp
                     if supp:      # the specific supplement that covers this device version
                         pairs.append(("ex:relatedPMARecord", _ref(iri.pma(num, supp))))
                 elif u.startswith("H"):
                     pairs.append(("ex:relatedHDE", _ref(iri.hde(num))))
                 else:
-                    pairs.append(("ex:premarketSubmissionNumber", common.lit(num)))
+                    pairs.append(("ex:premarketSubmissionNumber", common.text_lit(num)))
 
             for ident in r.get("identifiers") or []:
                 iid = str(ident.get("id") or "").strip()
@@ -173,7 +183,7 @@ def transform(src, out, retrieved_at=None):
                 body = "; ".join(x for x in (val, text) if x)
                 if body:
                     label = str(sz.get("type") or "").strip()
-                    pairs.append(("ex:deviceSize", common.lit(f"{label}: {body}" if label else body)))
+                    pairs.append(("ex:deviceSize", common.text_lit(f"{label}: {body}" if label else body)))
             # customer_contacts (support phone/e-mail) are deliberately not ingested
 
             for pred, obj in common.provenance(DATASET, key,
@@ -199,14 +209,14 @@ def transform(src, out, retrieved_at=None):
                 seen["ident"].add(h)
                 w.block(node, [
                     ("a", "ex:UDIIdentifier"),
-                    ("rdfs:label", common.lit(iid)),
-                    ("ex:identifierId", common.lit(iid)),
-                    ("ex:identifierType", common.lit(ident.get("type"))),
-                    ("ex:issuingAgency", common.lit(agency)),
-                    ("ex:packageType", common.lit(ident.get("package_type"))),
+                    ("rdfs:label", common.text_lit(iid)),
+                    ("ex:identifierId", common.text_lit(iid)),
+                    ("ex:identifierType", common.text_lit(ident.get("type"))),
+                    ("ex:issuingAgency", common.text_lit(agency)),
+                    ("ex:packageType", common.text_lit(ident.get("package_type"))),
                     ("ex:quantityPerUnitOfUse", common.int_lit(ident.get("quantity_per_package"))),
-                    ("ex:unitOfUseId", common.lit(ident.get("unit_of_use_id"))),
-                    ("ex:packageStatus", common.lit(ident.get("package_status"))),
+                    ("ex:unitOfUseId", common.text_lit(ident.get("unit_of_use_id"))),
+                    ("ex:packageStatus", common.text_lit(ident.get("package_status"))),
                     ("ex:packageDiscontinueDate", common.date_lit(ident.get("package_discontinue_date"))),
                     ("ex:belongsToDevice", _ref(dev)),
                 ])
@@ -222,12 +232,12 @@ def transform(src, out, retrieved_at=None):
                 seen["gmdn"].add(node)
                 w.block(node, [
                     ("a", "ex:GMDNTerm"),
-                    ("rdfs:label", common.lit(g.get("name"))),
-                    ("ex:gmdnTermCode", common.lit(code)),
-                    ("ex:gmdnTermName", common.lit(g.get("name"))),
-                    ("ex:gmdnTermDefinition", common.lit(g.get("definition"))),
+                    ("rdfs:label", common.text_lit(g.get("name"))),
+                    ("ex:gmdnTermCode", common.text_lit(code)),
+                    ("ex:gmdnTermName", common.text_lit(g.get("name"))),
+                    ("ex:gmdnTermDefinition", common.text_lit(g.get("definition"))),
                     ("ex:gmdnImplantable", common.bool_lit(g.get("implantable"))),
-                    ("ex:gmdnCodeStatus", common.lit(g.get("code_status"))),
+                    ("ex:gmdnCodeStatus", common.text_lit(g.get("code_status"))),
                 ])
 
             # ---- labeler node (deduped) ----
@@ -237,9 +247,9 @@ def transform(src, out, retrieved_at=None):
                     seen["labeler"].add(node)
                     w.block(node, [
                         ("a", "ex:Labeler"),
-                        ("rdfs:label", common.lit(r.get("company_name"))),
-                        ("ex:companyName", common.lit(r.get("company_name"))),
-                        ("ex:dunsNumber", common.lit(duns)),
+                        ("rdfs:label", common.text_lit(r.get("company_name"))),
+                        ("ex:companyName", common.text_lit(r.get("company_name"))),
+                        ("ex:dunsNumber", common.text_lit(duns)),
                     ])
 
             # ---- storage conditions (per-device, indexed) ----
@@ -249,12 +259,12 @@ def transform(src, out, retrieved_at=None):
                 low = sc.get("low") or {}
                 w.block(node, [
                     ("a", "ex:StorageCondition"),
-                    ("ex:storageType", common.lit(sc.get("type"))),
-                    ("ex:storageHighValue", common.lit(high.get("value"))),
-                    ("ex:storageHighUnit", common.lit(high.get("unit"))),
-                    ("ex:storageLowValue", common.lit(low.get("value"))),
-                    ("ex:storageLowUnit", common.lit(low.get("unit"))),
-                    ("ex:specialConditions", common.lit(sc.get("special_conditions"))),
+                    ("ex:storageType", common.text_lit(sc.get("type"))),
+                    ("ex:storageHighValue", common.text_lit(high.get("value"))),
+                    ("ex:storageHighUnit", common.text_lit(high.get("unit"))),
+                    ("ex:storageLowValue", common.text_lit(low.get("value"))),
+                    ("ex:storageLowUnit", common.text_lit(low.get("unit"))),
+                    ("ex:specialConditions", common.text_lit(sc.get("special_conditions"))),
                     ("ex:appliesToDevice", _ref(dev)),
                 ])
                 w.block(dev, [("ex:hasStorageCondition", _ref(node))])
@@ -273,6 +283,7 @@ def _selftest():
     sample = {"results": [
         {"public_device_record_key": "abc-123", "brand_name": "CardioX",
          "company_name": "Acme Medical", "version_or_model_number": "CX-9",
+         "device_description": "Defibrillator. For IFU write to ifu.request@acme-med.example.com",
          "publish_date": "2016-09-12", "public_version_date": "20200101",
          "record_status": "Published", "commercial_distribution_status": "In Commercial Distribution",
          "device_count_in_base_package": "1",
@@ -285,6 +296,8 @@ def _selftest():
          "gmdn_terms": [{"code": "35204", "name": "Defibrillator", "implantable": "true"}],
          "premarket_submissions": [{"submission_number": "K123456"},
                                    {"submission_number": "P900001", "supplement_number": "S012"},
+                                   {"submission_number": "P900002", "supplement_number": "014"},
+                                   {"submission_number": "P900003", "supplement_number": "000"},
                                    {"submission_number": "DEN140010"}],
          "commercial_distribution_end_date": "2024-05-01",
          "device_sizes": [{"type": "Catheter Gauge", "value": "20", "unit": "Gauge"},
@@ -316,9 +329,18 @@ def _selftest():
     assert f"<{iri.gmdn('35204')}>" in text and "ex:GMDNTerm" in text
     assert f"<{iri.k510('K123456')}>" in text and f"<{iri.k510('DEN140010')}>" in text
     assert f"<{iri.pma('P900001')}>" in text and f"<{iri.pma('P900001', 'S012')}>" in text
+    # GUDID's digits-only supplement "014" links to FDA PMA data's "S014" node (as pma.py mints it)
+    assert f"<{iri.pma('P900002', 'S014')}>" in text, text
+    assert f"<{iri.pma('P900002', '014')}>" not in text
+    # supplement "000" is the original approval: base PMA link only, no supplement node
+    assert f"<{iri.pma('P900003')}>" in text
+    assert f"<{iri.pma('P900003', 'S000')}>" not in text and f"<{iri.pma('P900003', '000')}>" not in text
     assert 'ex:deviceSize "Catheter Gauge: 20 Gauge"' in text and 'Small"' in text
     assert '"2024-05-01"^^xsd:date' in text and 'ex:packageStatus "Not in Commercial Distribution"' in text
     assert "help@example.com" not in text and "555-0100" not in text
+    # e-mail addresses in FDA text -> [EMAIL REMOVED] (PI decision 2026-11-17); company name kept
+    assert 'ex:deviceDescription "Defibrillator. For IFU write to [EMAIL REMOVED]"' in text
+    assert 'ex:companyName "Acme Medical"' in text and "acme-med.example.com" not in text
     assert f"<{iri.labeler('123456789')}>" in text and "ex:Labeler" in text
     assert "ex:StorageCondition" in text and "ex:hasStorageCondition" in text
     assert 'ex:sourceDataset "device/udi"' in text

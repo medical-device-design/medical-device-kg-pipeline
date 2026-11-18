@@ -7,6 +7,9 @@ recall classification, and -- where openFDA supplies them -- real cross-links to
 the clearance/approval records that the recalled device came through
 (ex:relatedK510Record / ex:relatedPMARecord), plus the ProductCode hub. Those
 cross-source joins are the whole point of the graph.
+
+E-mail addresses in the FDA text are replaced by [EMAIL REMOVED] in every string literal
+(common.text_lit / scrub.scrub_email; PI decision 2026-11-17); IRIs and firm names unchanged.
 """
 import os
 import sys
@@ -82,40 +85,46 @@ def transform(src, out, retrieved_at=None):
 
             pairs = [
                 ("a", "ex:RecallRecord"),
-                ("ex:recallNumber", common.lit(rn) if rn else None),
+                ("rdfs:label", common.text_label(f"Recall {rn}" if rn else "Recall (number pending)",
+                                            r.get("recalling_firm"))),
+                ("ex:recallNumber", common.text_lit(rn) if rn else None),
                 # FDA posts some reports before assigning a recall number (2026-10-10:
                 # one record, event 94520, "Not Yet Classified"). Keep it, flagged.
-                ("ex:recallNumberStatus", None if rn else common.lit("not yet assigned by FDA")),
-                ("ex:recallClassification", common.lit(r.get("classification"))),
-                ("ex:recallStatus", common.lit(r.get("status"))),   # ontology term (was ex:status)
-                ("ex:reasonForRecall", common.lit(r.get("reason_for_recall"))),
-                ("ex:recallingFirm", common.lit(r.get("recalling_firm"))),
-                ("ex:productDescription", common.lit(r.get("product_description"))),
+                ("ex:recallNumberStatus", None if rn else common.text_lit("not yet assigned by FDA")),
+                ("ex:recallClassification", common.text_lit(r.get("classification"))),
+                ("ex:recallStatus", common.text_lit(r.get("status"))),   # ontology term (was ex:status)
+                # free text is whitespace-normalized: the recall database publishes the
+                # same text with different line breaks, and both land on this IRI
+                ("ex:reasonForRecall", common.text_lit(common.norm_text(r.get("reason_for_recall")))),
+                ("ex:recallingFirm", common.text_lit(common.norm_text(r.get("recalling_firm")))),
+                ("ex:productDescription", common.text_lit(common.norm_text(r.get("product_description")))),
                 ("ex:recallInitiationDate", common.date_lit(r.get("recall_initiation_date"))),
                 ("ex:reportDate", common.date_lit(r.get("report_date"))),
                 ("ex:centerClassificationDate", common.date_lit(r.get("center_classification_date"))),
                 ("ex:terminationDate", common.date_lit(r.get("termination_date"))),
-                ("ex:voluntaryMandated", common.lit(r.get("voluntary_mandated"))),
-                ("ex:initialFirmNotification", common.lit(r.get("initial_firm_notification"))),
-                ("ex:productQuantity", common.lit(r.get("product_quantity"))),
-                ("ex:eventId", common.lit(r.get("event_id"))),
-                ("ex:distributionPattern", common.lit(r.get("distribution_pattern"))),
-                ("ex:city", common.lit(r.get("city"))),
-                ("ex:state", common.lit(r.get("state"))),
-                ("ex:country", common.lit(r.get("country"))),
-                ("ex:address", common.lit(", ".join(x for x in (r.get("address_1"), r.get("address_2")) if x))),
-                ("ex:postalCode", common.lit(r.get("postal_code"))),
-                ("ex:productType", common.lit(r.get("product_type"))),
+                ("ex:voluntaryMandated", common.text_lit(r.get("voluntary_mandated"))),
+                ("ex:initialFirmNotification", common.text_lit(r.get("initial_firm_notification"))),
+                ("ex:productQuantity", common.text_lit(r.get("product_quantity"))),
+                ("ex:eventId", common.text_lit(r.get("event_id"))),
+                ("ex:distributionPattern", common.text_lit(r.get("distribution_pattern"))),
+                ("ex:city", common.text_lit(r.get("city"))),
+                ("ex:state", common.text_lit(r.get("state"))),
+                ("ex:country", common.text_lit(r.get("country"))),
+                ("ex:address", common.text_lit(common.norm_address(r.get("address_1"), r.get("address_2")))),
+                ("ex:postalCode", common.text_lit(r.get("postal_code"))),
+                ("ex:productType", common.text_lit(r.get("product_type"))),
             ]
+            pairs += common.implausible_year_pairs(r.get("recall_initiation_date"), "recall initiation date")
 
             # code_info (lots/serials): kept in full unless CODE_INFO_CAP is set.
             # FDA moves the overflow of long lot lists into more_code_info; it is joined
             # back so one ex:codeInfo literal holds the complete published list.
-            code = " ".join(str(x).strip() for x in (r.get("code_info"), r.get("more_code_info")) if x and str(x).strip())
-            pairs += common.capped_pairs("ex:codeInfo", code or None, CODE_INFO_CAP)
+            code = common.norm_text(" ".join(str(x).strip() for x in (r.get("code_info"), r.get("more_code_info"))
+                                             if x and str(x).strip())) or ""
+            pairs += common.capped_pairs("ex:codeInfo", common.no_email(code or None), CODE_INFO_CAP)
             # barcode path: GS1 device identifiers FDA quotes in the lot text -> UDI identifier nodes
             for di in common.gs1_dis(code):
-                pairs.append(("ex:quotedDeviceIdentifier", common.lit(di)))
+                pairs.append(("ex:quotedDeviceIdentifier", common.text_lit(di)))
                 pairs.append(("ex:mentionsDeviceIdentifier", f"<{iri.udi_identifier('GS1', di)}>"))
             # structured geography from the free-text field (task: distribution parser)
             pairs += distribution_pairs(r.get("distribution_pattern"))
@@ -137,8 +146,11 @@ def transform(src, out, retrieved_at=None):
             for pn in common.as_list(of.get("pma_number")):
                 pairs.append(("ex:relatedPMARecord", f"<{iri.pma(pn)}>"))
 
-            for pc in common.as_list(of.get("product_code")):
-                pairs.append(("ex:productCode", common.lit(pc)))
+            for raw_pc in common.as_list(of.get("product_code")):
+                pc = common.product_code(raw_pc)
+                if not pc:
+                    continue
+                pairs.append(("ex:productCode", common.text_lit(pc)))
                 pairs.append(("ex:hasProductCode", f"<{iri.product_code(pc)}>"))
                 hub.setdefault(pc, {
                     "label": (common.as_list(of.get("device_name")) or [None])[0],
@@ -158,21 +170,19 @@ def transform(src, out, retrieved_at=None):
             d = hub[pc]
             block = [
                 ("a", "ex:ProductCode"),
-                ("rdfs:label", common.lit(d.get("label"))),
-                ("ex:productCode", common.lit(pc)),
-                ("ex:deviceClass", common.lit(d.get("device_class"))),
-                ("ex:medicalSpecialtyDescription", common.lit(d.get("specialty"))),
+                # rdfs:label on product codes comes from classification only (one label
+                # per node); other sources' device names are alternative labels
+                ("skos:altLabel", common.text_lit(d.get("label"))),
+                ("ex:productCode", common.text_lit(pc)),
+                ("ex:deviceClass", common.text_lit(d.get("device_class"))),
+                ("ex:medicalSpecialtyDescription", common.text_lit(d.get("specialty"))),
             ]
             if d.get("regulation_number"):
                 block.append(("ex:hasRegulationNumber", f"<{iri.regulation(d['regulation_number'])}>"))
             w.block(iri.product_code(pc), block)
 
         for nf in sorted(firms):
-            w.block(iri.firm_name(nf), [
-                ("a", "ex:FirmName"),
-                ("rdfs:label", common.lit(firms[nf])),
-                ("ex:normalizedName", common.lit(nf)),
-            ])
+            w.block(iri.firm_name(nf), common.firm_name_pairs(nf, firms[nf]))
 
     st.triples = w.triples
     return st
@@ -191,7 +201,7 @@ def _selftest():
          "recalling_firm": "MiniMed", "product_description": "Insulin pump",
          "recall_initiation_date": "20250115", "report_date": "20250201",
          "voluntary_mandated": "Voluntary: Firm initiated", "state": "CA",
-         "distribution_pattern": "Nationwide and Canada",
+         "distribution_pattern": "Nationwide and Canada. Questions: pumps@minimed.example.com",
          "openfda": {"product_code": ["OYC"], "k_number": ["K180179"],
                      "pma_number": ["P010001"], "device_class": ["2"],
                      "device_name": ["Pump, infusion, insulin"]}},
@@ -220,6 +230,14 @@ def _selftest():
     assert 'ex:recallStatus "Ongoing"' in text and "ex:status " not in text
     assert "ex:distributedNationwide" in text                 # parser folded in
     assert f"<{iri.firm_name('MINIMED')}>" in text and "a ex:FirmName" in text
+    assert 'rdfs:label "Recall Z-0001-2025: MiniMed"' in text            # records are labelled
+    assert 'rdfs:label "MINIMED"' in text and 'skos:altLabel "MiniMed"' in text
+    assert 'skos:altLabel "Pump, infusion, insulin"' in text             # hub name is secondary
+    assert text.count("rdfs:label") == 3                                  # 2 records + 1 firm; none on the hub
+    assert 'rdfs:label "Recall (number pending)"' in text
+    # e-mail addresses in FDA text -> [EMAIL REMOVED]; the distribution parser still sees the raw text
+    assert 'ex:distributionPattern "Nationwide and Canada. Questions: [EMAIL REMOVED]"' in text
+    assert "@" not in text.replace("@prefix", "")
     print(f"recalls.py self-test PASSED ({st.records} records, {st.triples} triples).")
 
 

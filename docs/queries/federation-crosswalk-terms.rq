@@ -1,0 +1,112 @@
+#+ summary: Federation crosswalk terms - sample rows for every join key that the mcp-okn crosswalks use to link medical-device-kg to other OKN graphs (ZIP, company name, coordinates, MAUDE patient problem, country codes, NAICS)
+#+ tags:
+#+   - medical-device-kg
+
+# The mcp-okn federation (sbl-sdsc/mcp-okn, crosswalks J7-J11, I3, I5, I6, I8, MD1-MD4) joins on
+# exactly the terms below. Each UNION branch returns a few rows for one join key:
+#   ?keyPredicate  the predicate the crosswalk joins on
+#   ?key           its value on this record (the join key as stored, before any normalization)
+#   ?confirm       the second value the crosswalk uses with it (ZIP confirmation, longitude, product code)
+#   ?country       the country value used to decide whether a ZIP is a US ZIP
+#   ?context       other values the crosswalk example queries read
+# wgs: is the W3C WGS84 vocabulary (mcp-okn writes it as geo:); geo: here is GeoSPARQL.
+
+PREFIX ex: <https://bmedesign.org/medical-device-kg/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX wgs: <http://www.w3.org/2003/01/geo/wgs84_pos#>
+PREFIX geo: <http://www.opengis.net/ont/geosparql#>
+PREFIX sudokn: <http://asu.edu/semantics/SUDOKN/>
+SELECT ?crosswalk ?recordType ?record ?keyPredicate ?key ?confirm ?country ?context WHERE {
+{
+  # J7-J11 ZIP5 joins (spoke-okn, scales, sudokn, ruralkg, dreamkg): ex:postalCode on every
+  # address-bearing record, US only (ex:country absent, "US", "United States" or "PR").
+  {
+    { SELECT ?record ?key ?country WHERE { ?record a ex:RegistrationListingRecord ; ex:postalCode ?key . OPTIONAL { ?record ex:country ?country } } LIMIT 2 }
+    BIND(ex:RegistrationListingRecord AS ?recordType)
+  } UNION {
+    { SELECT ?record ?key ?country ?context WHERE { ?record a ex:MammographyFacility ; ex:postalCode ?key . OPTIONAL { ?record ex:country ?country } OPTIONAL { ?record ex:facilityName ?context } } LIMIT 2 }
+    BIND(ex:MammographyFacility AS ?recordType)
+  } UNION {
+    { SELECT ?record ?key ?country WHERE { ?record a ex:XrayAssemblerRecord ; ex:postalCode ?key . OPTIONAL { ?record ex:country ?country } } LIMIT 2 }
+    BIND(ex:XrayAssemblerRecord AS ?recordType)
+  } UNION {
+    { SELECT ?record ?key ?country WHERE { ?record a ex:K510Record ; ex:postalCode ?key . OPTIONAL { ?record ex:country ?country } } LIMIT 2 }
+    BIND(ex:K510Record AS ?recordType)
+  } UNION {
+    { SELECT ?record ?key ?country WHERE { ?record a ex:PMARecord ; ex:postalCode ?key . OPTIONAL { ?record ex:country ?country } } LIMIT 2 }
+    BIND(ex:PMARecord AS ?recordType)
+  } UNION {
+    { SELECT ?record ?key ?country WHERE { ?record a ex:HumanitarianDeviceExemption ; ex:postalCode ?key . OPTIONAL { ?record ex:country ?country } } LIMIT 2 }
+    BIND(ex:HumanitarianDeviceExemption AS ?recordType)
+  } UNION {
+    # geospatial36 (scales) also reads the recalling firm and the recall class
+    { SELECT ?record ?key ?country ?context WHERE { ?record a ex:RecallRecord ; ex:postalCode ?key . OPTIONAL { ?record ex:country ?country }
+        OPTIONAL { ?record ex:recallingFirm ?firm } OPTIONAL { ?record ex:recallClassification ?rclass }
+        BIND(CONCAT(COALESCE(STR(?firm), ""), " | ", COALESCE(STR(?rclass), "")) AS ?context) } LIMIT 2 }
+    BIND(ex:RecallRecord AS ?recordType)
+  }
+  BIND("J7-J11 ZIP5" AS ?crosswalk)
+  BIND(ex:postalCode AS ?keyPredicate)
+}
+UNION
+{
+  # I3 (sudokn) and I8 (securechainkg): company name on the FDA establishment registration,
+  # confirmed by ZIP; ex:feiNumber is the record's own company key.
+  { SELECT ?record ?key ?confirm ?country ?context WHERE {
+      ?record a ex:RegistrationListingRecord ; ex:name ?key ; ex:postalCode ?confirm .
+      OPTIONAL { ?record ex:country ?country } OPTIONAL { ?record ex:feiNumber ?context } } LIMIT 3 }
+  BIND("I3/I8 company name + ZIP" AS ?crosswalk)
+  BIND(ex:RegistrationListingRecord AS ?recordType)
+  BIND(ex:name AS ?keyPredicate)
+}
+UNION
+{
+  # MD1 (spatialkg): the S2 Level-13 cell is computed from wgs:lat / wgs:long on geocoded
+  # establishments and mammography facilities (US Census Geocoder); ex:state for the roll-up.
+  { SELECT ?recordType ?record ?key ?confirm ?country ?context WHERE {
+      VALUES ?recordType { ex:RegistrationListingRecord ex:MammographyFacility }
+      ?record a ?recordType ; wgs:lat ?key ; wgs:long ?confirm ;
+              ex:geocodingSource ?src ; ex:geocodingConfidence ?conf .
+      OPTIONAL { ?record ex:state ?st }
+      OPTIONAL { ?record ex:name|ex:facilityName ?nm }
+      OPTIONAL { ?record geo:hasGeometry ?g . ?g geo:asWKT ?wkt }
+      BIND(CONCAT(COALESCE(STR(?st), ""), " | ", COALESCE(STR(?nm), ""), " | ", COALESCE(STR(?wkt), ""), " | ", STR(?conf), " ", STR(?src)) AS ?context) } LIMIT 4 }
+  BIND("MD1 coordinates -> S2 cell" AS ?crosswalk)
+  BIND(wgs:lat AS ?keyPredicate)
+}
+UNION
+{
+  # MD2 (oard-kg) and MD3 (rdkg): MAUDE patient-problem term (plain string) matched to HP
+  # labels and exact synonyms; ex:productCode and ex:genericName scope the report.
+  { SELECT ?record ?key ?confirm ?context WHERE {
+      ?record a ex:MAUDEReport ; ex:patientProblem ?key .
+      OPTIONAL { ?record ex:productCode ?confirm } OPTIONAL { ?record ex:genericName ?context } } LIMIT 3 }
+  BIND("MD2/MD3 patient problem -> HP" AS ?crosswalk)
+  BIND(ex:MAUDEReport AS ?recordType)
+  BIND(ex:patientProblem AS ?keyPredicate)
+}
+UNION
+{
+  # MD4 (climatemodelskg): MAUDE country fields are FIPS 10-4 two-letter codes; the address
+  # field ex:country (above) is ISO 3166-1 alpha-2 or a spelled-out name.
+  { SELECT ?record ?key ?confirm WHERE {
+      ?record a ex:MAUDEReport ; ex:deviceManufacturerCountry ?key .
+      OPTIONAL { ?record ex:reporterCountry ?confirm } } LIMIT 3 }
+  BIND("MD4 country code (FIPS 10-4)" AS ?crosswalk)
+  BIND(ex:MAUDEReport AS ?recordType)
+  BIND(ex:deviceManufacturerCountry AS ?keyPredicate)
+}
+UNION
+{
+  # I5 (fiokg) and I6 (securechainkg): bare 6-digit NAICS code on the classifier node,
+  # reached by sudokn:hasNAICSClassifier (equivalently ex:hasNAICSClassification).
+  { SELECT ?record ?key ?confirm ?context WHERE {
+      ?record a ex:Manufacturer ; sudokn:hasNAICSClassifier ?c ; ex:hasNAICSClassification ?c .
+      ?c ex:naicsCode ?key .
+      OPTIONAL { ?c rdfs:label ?confirm } OPTIONAL { ?record rdfs:label ?context } } LIMIT 3 }
+  BIND("I5/I6 NAICS code" AS ?crosswalk)
+  BIND(ex:Manufacturer AS ?recordType)
+  BIND(ex:naicsCode AS ?keyPredicate)
+}
+}
+ORDER BY ?crosswalk ?recordType ?record
