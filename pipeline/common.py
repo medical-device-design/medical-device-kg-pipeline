@@ -24,8 +24,11 @@ untyped string. Never silently downgrade a good date; never fabricate a bad one.
 
 import re
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+ISO_YM = re.compile(r"^(\d{4})-(\d{2})$")        # partial date: year-month
+YEAR_ONLY = re.compile(r"^\d{4}$")                 # partial date: year
 YYYYMMDD = re.compile(r"^\d{8}$")
 US_DATE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")      # CDRH flat files: 02/17/2017
 
@@ -112,15 +115,25 @@ def gyear_lit(value):
 
 
 def float_lit(value):
-    """Decimal measurement (storage temperature, quantities). xsd:decimal."""
-    if value is None or str(value).strip() == "":
+    """Decimal measurement (storage temperature, quantities, amounts). xsd:decimal
+    in plain notation. The earlier f"{f:g}" form had two defects: values of 1e6 or
+    more came out in exponent form ("2.5e+06", not a valid xsd:decimal), and every
+    value was rounded to 6 significant digits ("1234567.5" -> "1.23457e+06",
+    "1234.5678" -> "1234.57"). Decimal keeps the source digits exactly."""
+    if value is None or isinstance(value, bool) or str(value).strip() == "":
         return None
     try:
-        f = float(str(value).strip())
-    except (ValueError, TypeError):
+        d = Decimal(str(value).strip())
+    except (InvalidOperation, ValueError):
         return None
-    # canonical, no exponent, no trailing noise
-    return f'"{f:g}"^^xsd:decimal'
+    if not d.is_finite():
+        return None
+    s = format(d.normalize(), "f")
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    if s in ("-0", ""):
+        s = "0"
+    return f'"{s}"^^xsd:decimal'
 
 
 def _valid_date(y, m, d):
@@ -146,6 +159,13 @@ def date_lit(value):
     if ISO_DATE.match(s):
         y, m, d = s[0:4], s[5:7], s[8:10]
         return f'"{s}"^^xsd:date' if _valid_date(y, m, d) else f'"{esc(s)}"'
+
+    m = ISO_YM.match(s)               # partial date, e.g. "2019-05"
+    if m:
+        return f'"{s}"^^xsd:gYearMonth' if 1 <= int(m.group(2)) <= 12 else f'"{esc(s)}"'
+
+    if YEAR_ONLY.match(s):            # partial date, e.g. "2019"
+        return f'"{s}"^^xsd:gYear'
 
     if YYYYMMDD.match(s):
         y, m, d = s[0:4], s[4:6], s[6:8]
@@ -279,6 +299,13 @@ def _selftest():
     assert float_lit("2.0") == '"2"^^xsd:decimal'
     assert float_lit("-40") == '"-40"^^xsd:decimal'
     assert float_lit("") is None
+    assert float_lit("2500000") == '"2500000"^^xsd:decimal'      # was "2.5e+06"
+    assert float_lit("1234.5678") == '"1234.5678"^^xsd:decimal'  # was "1234.57"
+    assert float_lit("0.00012") == '"0.00012"^^xsd:decimal'
+    assert float_lit("NA") is None
+    assert date_lit("2019-05") == '"2019-05"^^xsd:gYearMonth'
+    assert date_lit("2019-13") == '"2019-13"'
+    assert date_lit("2019") == '"2019"^^xsd:gYear'
     # --- strings / escaping ----------------------------------------------
     assert lit("  hi  ") == '"hi"'
     assert lit("") is None
